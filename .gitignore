@@ -1,0 +1,24 @@
+# Python folders
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS settings
+.DS_Store
+Thumbs.db
+
+# Project logs and outputs
+crash_log.txt
+error_log.txt
+render_jobs.json
+settings.json
+render_progress.json
+
+# If you have render frames in this folder, you should ignore them
+render_output/
+*.png
+*.jpg
+*.exr
+
+# Any bat files with sensitive paths
+# render.bat
