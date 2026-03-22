@@ -55,16 +55,16 @@ BLENDER_INSTALL_DIR = GLOBAL_SETTINGS.get("blender_install_dir", BLENDER_INSTALL
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-# Colors
-BG_DARK = "#1a1a2e"
-BG_CARD = "#16213e"
-BG_INPUT = "#0f3460"
-ACCENT = "#e94560"
-ACCENT_HOVER = "#ff6b81"
-TEXT_PRIMARY = "#eaeaea"
-TEXT_DIM = "#8892b0"
-SUCCESS = "#00d2d3"
-BORDER = "#233554"
+# Colors (Blender Minimalist Style)
+BG_DARK = "#1d1d1d"        # Main background
+BG_CARD = "#2b2b2b"        # Card / panel background
+BG_INPUT = "#3a3a3a"       # Inputs / elements
+ACCENT = "#4772b3"         # Blender blue selection
+ACCENT_HOVER = "#5c85c7"
+TEXT_PRIMARY = "#e6e6e6"
+TEXT_DIM = "#9c9c9c"
+SUCCESS = "#56804b"        # Soft green
+BORDER = "#141414"
 
 
 def discover_blender_installations(install_dir: str) -> list[dict]:
@@ -143,9 +143,9 @@ class RenderJobRow(ctk.CTkFrame):
         # Version
         ctk.CTkLabel(self, text="Version", text_color=TEXT_DIM).grid(row=2, column=0, sticky="w", padx=(12, 4), pady=4)
         v_labels = [v["label"] for v in self.blender_versions]
-        default_v = v_labels[0] if v_labels else "Aucune"
+        default_v = v_labels[0] if v_labels else "None"
         self.version_var = ctk.StringVar(value=default_v)
-        self.version_menu = ctk.CTkOptionMenu(self, variable=self.version_var, values=v_labels if v_labels else ["Aucune"], fg_color=BG_INPUT, width=260)
+        self.version_menu = ctk.CTkOptionMenu(self, variable=self.version_var, values=v_labels if v_labels else ["None"], fg_color=BG_INPUT, width=260)
         self.version_menu.grid(row=2, column=1, columnspan=2, sticky="w", padx=(0, 10), pady=4)
 
         # Output
@@ -166,34 +166,76 @@ class RenderJobRow(ctk.CTkFrame):
         range_frame = ctk.CTkFrame(self, fg_color="transparent")
         range_frame.grid(row=4, column=1, columnspan=2, sticky="ew", padx=(0, 10), pady=4)
         self.start_var = ctk.StringVar(value="1"); self.end_var = ctk.StringVar(value="250"); self.step_var = ctk.StringVar(value="1")
-        ctk.CTkEntry(range_frame, textvariable=self.start_var, width=60).grid(row=0, column=0, padx=2)
+        self.start_entry = ctk.CTkEntry(range_frame, textvariable=self.start_var, width=60)
+        self.start_entry.grid(row=0, column=0, padx=2)
         ctk.CTkLabel(range_frame, text="→").grid(row=0, column=1)
-        ctk.CTkEntry(range_frame, textvariable=self.end_var, width=60).grid(row=0, column=2, padx=2)
+        self.end_entry = ctk.CTkEntry(range_frame, textvariable=self.end_var, width=60)
+        self.end_entry.grid(row=0, column=2, padx=2)
         ctk.CTkLabel(range_frame, text="Step:", text_color=TEXT_DIM).grid(row=0, column=3, padx=(10, 2))
         ctk.CTkEntry(range_frame, textvariable=self.step_var, width=40).grid(row=0, column=4, padx=2)
         self.auto_range_var = ctk.BooleanVar(value=True)
         ctk.CTkCheckBox(range_frame, text="Auto", variable=self.auto_range_var, width=60, command=self._on_auto_toggle).grid(row=0, column=5)
 
         # Settings
-        ctk.CTkLabel(self, text="Settings", text_color=TEXT_DIM).grid(row=5, column=0, sticky="w", padx=(12, 4), pady=4)
+        ctk.CTkLabel(self, text="Settings", text_color=TEXT_DIM).grid(row=5, column=0, sticky="nw", padx=(12, 4), pady=(8, 4))
         conf_frame = ctk.CTkFrame(self, fg_color="transparent")
         conf_frame.grid(row=5, column=1, columnspan=2, sticky="ew", padx=(0, 10), pady=4)
+        
         self.engine_var = ctk.StringVar(value="CYCLES")
-        ctk.CTkOptionMenu(conf_frame, variable=self.engine_var, values=["CYCLES", "BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH"], width=150).grid(row=0, column=0, padx=2)
+        self.engine_menu = ctk.CTkOptionMenu(conf_frame, variable=self.engine_var, values=["CYCLES", "BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH"], width=150)
+        self.engine_menu.grid(row=0, column=0, padx=2, pady=2)
+        
         self.auto_engine_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(conf_frame, text="Auto", variable=self.auto_engine_var, width=60, command=self._on_auto_toggle).grid(row=0, column=1)
+        ctk.CTkCheckBox(conf_frame, text="Auto", variable=self.auto_engine_var, width=60, command=self._on_auto_toggle).grid(row=0, column=1, pady=2)
         
-        ctk.CTkLabel(conf_frame, text="Preset:", text_color=TEXT_DIM).grid(row=0, column=2, padx=(15, 2))
+        ctk.CTkLabel(conf_frame, text="Preset:", text_color=TEXT_DIM).grid(row=0, column=2, padx=(15, 2), pady=2)
         self.preset_var = ctk.StringVar(value="Default")
-        ctk.CTkOptionMenu(conf_frame, variable=self.preset_var, values=["Default", "Fast (128)", "Draft (32+Simp)"], width=130).grid(row=0, column=3, padx=2)
+        ctk.CTkOptionMenu(conf_frame, variable=self.preset_var, values=["Default", "Fast (128)", "Draft (32+Simp)"], width=130).grid(row=0, column=3, padx=2, pady=2)
         
-        ctk.CTkButton(conf_frame, text="🔍 Detect", width=80, height=30, fg_color=BG_INPUT, command=self._detect_settings).grid(row=0, column=4, padx=(15, 0))
+        # Factory Startup & Detect Button (Row 1)
+        self.factory_startup_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(conf_frame, text="Factory Startup (Ignore Addons / Safe Mode)", variable=self.factory_startup_var).grid(row=1, column=0, columnspan=2, sticky="w", padx=2, pady=(10, 2))
+        
+        ctk.CTkButton(conf_frame, text="🔍 Auto-Detect", width=100, height=28, fg_color=BG_INPUT, hover_color=ACCENT_HOVER, command=self._detect_settings).grid(row=1, column=3, sticky="e", padx=2, pady=(10, 2))
+        
+        # Packing & FFmpeg (Row 2)
+        self.pack_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(conf_frame, text="Pack External Data", variable=self.pack_var).grid(row=2, column=0, columnspan=2, sticky="w", padx=2, pady=4)
+        
+        self.assemble_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(conf_frame, text="Assemble MP4 Video", variable=self.assemble_var).grid(row=2, column=2, columnspan=2, sticky="w", padx=2, pady=4)
+
+        # Video Settings (Row 3)
+        vid_frame = ctk.CTkFrame(conf_frame, fg_color="transparent")
+        vid_frame.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(0, 2))
+        
+        ctk.CTkLabel(vid_frame, text="Video FPS:", text_color=TEXT_DIM).pack(side="left", padx=(2, 2))
+        self.fps_var = ctk.StringVar(value="24")
+        ctk.CTkEntry(vid_frame, textvariable=self.fps_var, width=50).pack(side="left", padx=2)
+        
+        ctk.CTkLabel(vid_frame, text="Compression:", text_color=TEXT_DIM).pack(side="left", padx=(15, 2))
+        self.quality_var = ctk.StringVar(value="CRF 18 (High)")
+        ctk.CTkOptionMenu(vid_frame, variable=self.quality_var, values=["CRF 18 (High)", "CRF 23 (Medium)", "CRF 28 (Low)"], width=130).pack(side="left", padx=2)
+
+        # Progress Bar
+        self.progress_bar = ctk.CTkProgressBar(self, height=6, fg_color=BG_DARK, progress_color=SUCCESS)
+        self.progress_bar.grid(row=6, column=0, columnspan=3, sticky="ew", padx=10, pady=(4, 10))
+        self.progress_bar.set(0)
 
         self._on_auto_toggle()
 
     def _on_auto_toggle(self):
         st_out = "disabled" if self.auto_out_var.get() else "normal"
         self.output_entry.configure(state=st_out); self.browse_out_btn.configure(state=st_out)
+        
+        st_range = "disabled" if self.auto_range_var.get() else "normal"
+        self.start_entry.configure(state=st_range); self.end_entry.configure(state=st_range)
+        
+        st_engine = "disabled" if self.auto_engine_var.get() else "normal"
+        self.engine_menu.configure(state=st_engine)
+
+    def set_progress(self, percentage):
+        self.progress_bar.set(percentage)
 
     def _browse_blend(self):
         path = filedialog.askopenfilename(filetypes=[("Blender files", "*.blend")])
@@ -217,6 +259,7 @@ class RenderJobRow(ctk.CTkFrame):
                 out = info.get('output', ""); self.output_var.set(os.path.dirname(out) if out and not out.endswith(('/', '\\')) else out)
             if self.auto_engine_var.get():
                 self.engine_var.set(info.get('engine', 'CYCLES'))
+            self.fps_var.set(str(round(info.get('fps', 24.0), 2)))
 
     def get_blender_exe(self) -> str | None:
         label = self.version_var.get()
@@ -231,7 +274,12 @@ class RenderJobRow(ctk.CTkFrame):
             "blend_file": self.blend_path_var.get(), "blender_version": self.version_var.get(),
             "output_dir": self.output_var.get(), "frame_start": self.start_var.get(),
             "frame_end": self.end_var.get(), "frame_step": self.step_var.get(),
-            "engine": self.engine_var.get(), "preset": self.preset_var.get()
+            "engine": self.engine_var.get(), "preset": self.preset_var.get(),
+            "factory_startup": self.factory_startup_var.get(),
+            "pack_external": self.pack_var.get(),
+            "assemble_mp4": self.assemble_var.get(),
+            "fps": self.fps_var.get(),
+            "quality": self.quality_var.get()
         }
 
     def set_config(self, config: dict):
@@ -247,12 +295,17 @@ class RenderJobRow(ctk.CTkFrame):
         self.step_var.set(str(config.get("frame_step", "1")))
         self.engine_var.set(config.get("engine", "CYCLES"))
         self.preset_var.set(config.get("preset", "Default"))
+        self.factory_startup_var.set(config.get("factory_startup", False))
+        self.pack_var.set(config.get("pack_external", False))
+        self.assemble_var.set(config.get("assemble_mp4", False))
+        self.fps_var.set(config.get("fps", "24"))
+        self.quality_var.set(config.get("quality", "CRF 18 (High)"))
         self._on_auto_toggle()
 
     def validate(self):
         b = self.blend_path_var.get().strip()
-        if not (b and os.path.isfile(b)): return f"Job #{self.job_id}: Fichier .blend invalide"
-        if not self.get_blender_exe(): return f"Job #{self.job_id}: Blender non trouvé"
+        if not (b and os.path.isfile(b)): return f"Job #{self.job_id}: Invalid .blend file"
+        if not self.get_blender_exe(): return f"Job #{self.job_id}: Blender executable not found"
         return None
 
 
@@ -319,18 +372,42 @@ class BlenderRenderApp(ctk.CTk):
     def _show_settings(self):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Settings")
-        dialog.geometry("500x250")
-        ctk.CTkLabel(dialog, text="Blender Installations Root Folder (ex: B:\\install) :").pack(pady=(20, 5))
+        dialog.geometry("550x300")
+        dialog.attributes('-topmost', True)
+        dialog.grab_set()
+        
+        ctk.CTkLabel(dialog, text="Blender Installations Root Folder :", font=("", 14, "bold")).pack(pady=(20, 5))
+        
         path_var = ctk.StringVar(value=BLENDER_INSTALL_DIR)
-        ctk.CTkEntry(dialog, textvariable=path_var, width=400).pack(pady=5)
+        default_path = r"C:\Program Files\Blender Foundation"
+        
+        radio_var = ctk.StringVar(value="custom" if path_var.get() != default_path else "default")
+        
+        def on_radio_change():
+            if radio_var.get() == "default":
+                path_var.set(default_path)
+                entry.configure(state="disabled")
+            else:
+                entry.configure(state="normal")
+                
+        ctk.CTkRadioButton(dialog, text=f"Default Windows Install ({default_path})", variable=radio_var, value="default", command=on_radio_change).pack(anchor="w", padx=50, pady=(10, 5))
+        
+        custom_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        custom_frame.pack(fill="x", padx=50, pady=5)
+        ctk.CTkRadioButton(custom_frame, text="Custom Path:", variable=radio_var, value="custom", command=on_radio_change).pack(side="left", padx=(0, 10))
+        entry = ctk.CTkEntry(custom_frame, textvariable=path_var, width=220)
+        entry.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(custom_frame, text="📂", width=30, fg_color=BG_INPUT, command=lambda: path_var.set(filedialog.askdirectory())).pack(side="left", padx=(5, 0))
+        
+        on_radio_change()
         
         def save():
             GLOBAL_SETTINGS["blender_install_dir"] = path_var.get()
             GLOBAL_SETTINGS["global_workers"] = int(self.workers_var.get() or 1)
             save_settings(GLOBAL_SETTINGS)
-            messagebox.showinfo("Saved", "Settings saved. Please restart the app.")
+            messagebox.showinfo("Saved", "Settings saved. Please restart the app.", parent=dialog)
             dialog.destroy()
-        ctk.CTkButton(dialog, text="Save & Close", command=save).pack(pady=20)
+        ctk.CTkButton(dialog, text="Save & Restart App", fg_color=ACCENT, command=save).pack(pady=20)
 
     def _add_job_row(self, config=None):
         row = RenderJobRow(self.jobs_scroll, self.blender_versions, on_delete=self._remove_job_row)
@@ -359,7 +436,7 @@ class BlenderRenderApp(ctk.CTk):
         self._add_job_row()
 
     def _resume_unfinished(self):
-        self._log("🔍 Checking for incomplete renders...")
+        self._log("🔍 Checking for incomplete renders (physical files check)...")
         count = 0
         for row in self.job_rows:
             cfg = row.get_config()
@@ -369,11 +446,40 @@ class BlenderRenderApp(ctk.CTk):
             if os.path.exists(prog_file):
                 try:
                     with open(prog_file, "r") as f: data = json.load(f)
-                    if data.get("status") != "completed":
-                        self._log(f"   Incomplete: {os.path.basename(cfg['blend_file'])}")
+                    
+                    frame_start = data.get("frame_start", 1)
+                    frame_end = data.get("frame_end", 250)
+                    step = data.get("frame_step", 1)
+                    
+                    # Verifying physical presence of files
+                    missing = False
+                    total = 0
+                    found_count = 0
+                    for f in range(frame_start, frame_end + 1, step):
+                        total += 1
+                        found = False
+                        for ext in (".png", ".jpg", ".jpeg", ".exr"):
+                            if os.path.exists(os.path.join(out, f"frame_{f:04d}{ext}")):
+                                found = True
+                                break
+                        if found: found_count += 1
+                        else: missing = True
+                    
+                    if missing or found_count < total:
+                        # Reset progress status to let manager render again
+                        data["status"] = "in_progress"
+                        try:
+                            with open(prog_file, "w") as fw: json.dump(data, fw)
+                        except: pass
+                        self._log(f"   Incomplete ({found_count}/{total} frames): {os.path.basename(cfg['blend_file'])}")
                         row.enabled_var.set(True); count += 1
-                    else: row.enabled_var.set(False)
-                except: pass
+                        if total > 0: row.set_progress(found_count / total)
+                    else: 
+                        row.enabled_var.set(False)
+                        row.set_progress(1.0)
+                except Exception as e:
+                    self._log(f"   Error parsing progress for {os.path.basename(cfg['blend_file'])}")
+                    
         if count > 0: self._log(f"✅ {count} job(s) ready.")
         else: self._log("ℹ No incomplete renders found.")
 
@@ -394,6 +500,7 @@ class BlenderRenderApp(ctk.CTk):
             workers = str(self.workers_var.get() or 1)
             for i, row in enumerate(jobs, 1):
                 if not self.is_running: break
+                self.current_job = row
                 cfg = row.get_config()
                 self._log_safe(f"\n▶ [{i}/{len(jobs)}] JOB: {os.path.basename(cfg['blend_file'])}")
                 
@@ -404,6 +511,16 @@ class BlenderRenderApp(ctk.CTk):
                 cmd += ["-st", str(cfg["frame_step"]), "--blender", str(row.get_blender_exe())]
                 cmd += ["--engine", "auto" if cfg["auto_engine"] else str(cfg["engine"])]
                 cmd += ["--workers", workers]
+                if cfg.get("factory_startup"):
+                    cmd += ["--factory-startup"]
+                if cfg.get("pack_external"):
+                    cmd += ["--pack-external"]
+                if cfg.get("assemble_mp4"):
+                    cmd += ["--assemble-mp4"]
+                    # Extract numeric CRF (e.g. 18 from "CRF 18 (High)")
+                    try: crf = cfg["quality"].split(" ")[1]
+                    except: crf = "18"
+                    cmd += ["--ffmpeg-fps", str(cfg["fps"]), "--ffmpeg-crf", crf]
                 
                 p = cfg.get("preset", "Default")
                 if "Fast" in p: cmd += ["--samples", "128"]
@@ -433,6 +550,15 @@ class BlenderRenderApp(ctk.CTk):
             self.stats_text.delete("1.0", "end")
             self.stats_text.insert("end", msg.strip() + "\n")
             self.stats_text.configure(state="disabled")
+            
+            # Update Progress Bar for Current Job
+            try:
+                import re
+                match = re.search(r"([0-9.]+)\%", msg)
+                if match and hasattr(self, "current_job"):
+                    perc = float(match.group(1)) / 100.0
+                    self.current_job.set_progress(perc)
+            except: pass
             return
         
         target.configure(state="normal")

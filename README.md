@@ -1,78 +1,78 @@
 # Blender Render Manager — Anti-crash
 
-Un outil simple pour lancer des rendus Blender qui **reprennent automatiquement** après un crash ou un redémarrage du PC.
+A simple tool to launch Blender renders that **automatically resume** after a crash or a PC restart.
 
-## Comment ça marche
+## How it works
 
-Le système est composé de **deux scripts** :
+The system consists of **two scripts**:
 
-1. **`render_manager.py`** (wrapper externe) — Lance Blender et surveille les crashes
-2. **`blender_render_script.py`** (script interne) — Tourne dans Blender, rend frame par frame via `bpy.ops.render`
+1. **`render_manager.py`** (External wrapper) — Launches Blender and monitors crashes.
+2. **`blender_render_script.py`** (Internal script) — Runs inside Blender, rendering frame by frame via `bpy.ops.render`.
 
-### Principe
+### Concept
 
-- Blender est lancé **une seule fois** et rend toutes les frames en séquence (pas de rechargement de scène entre les frames)
-- Après **chaque frame** terminée, la progression est sauvegardée dans `render_progress.json`
-- Si Blender crash → le wrapper **relance automatiquement** Blender depuis la dernière frame sauvegardée (- 1 frame par sécurité)
-- Si le PC redémarre → relancer le `.bat` et le rendu reprend automatiquement
-- Si Blender crash 5 fois de suite sans progresser → le script s'arrête (problème avec la scène)
+- Blender is launched **only once** and renders all frames in sequence (no scene reloading between frames).
+- After **each completed frame**, the progress is saved to `render_progress.json`.
+- If Blender crashes → the wrapper **automatically restarts** Blender from the last saved frame (- 1 frame for safety).
+- If the PC restarts → just re-run the `.bat` file and the render will automatically resume.
+- If Blender crashes 5 consecutive times without progressing → the script stops (likely an issue with the scene itself).
 
-## Interface graphique (GUI)
+## Graphical User Interface (GUI)
 
-Pour tout gérer depuis une seule fenêtre, lancer :
+To manage everything from a single window, run:
 
 ```bash
 python render_gui.py
 ```
 
-L'interface permet de :
-- **Parcourir** ou **coller** le chemin d'un fichier `.blend`
-- **Sélectionner** la version de Blender (auto-détecté depuis `B:\install`)
-- **Configurer** chaque job : plage de frames, moteur de rendu, dossier de sortie
-- **Activer/désactiver** chaque job avec une checkbox
-- **Ajouter** plusieurs jobs de rendu
-- **Générer** un fichier `.bat` prêt à lancer
-- **Lancer** le rendu directement avec suivi live dans la console intégrée
-- **Sauvegarder** les jobs pour les retrouver au prochain lancement
+The interface allows you to:
+- **Browse** or **paste** the path to a `.blend` file.
+- **Select** the Blender version (auto-detected from your default or custom installation path).
+- **Configure** each job: frame range, render engine, output folder.
+- **Enable/disable** each job with a checkbox.
+- **Add** multiple render jobs.
+- **Run** the render directly with a live console tracker.
+- **Save** jobs so they persist on the next launch.
+- **Toggle** advanced features like missing-frame detection, EXR/PNG to MP4 FFmpeg assembly, external data packing, and Factory Startup isolation.
 
 ## Installation
 
-### Pour la GUI :
-- **Python 3.10+** installé (et dans le PATH)
-- **customtkinter** : `pip install customtkinter`
-- **Blender** installé
+### For the GUI:
+- **Python 3.10+** installed (and added to PATH)
+- **customtkinter**: `pip install customtkinter`
+- **Blender** installed
 
-### Pour le mode ligne de commande / .bat :
-- **Python 3.10+** installé (et dans le PATH)
-- **Blender** installé
+### For command line / .bat mode:
+- **Python 3.10+** installed (and added to PATH)
+- **Blender** installed
 
-Les fichiers suivants doivent être dans le **même dossier** :
+The following files must be in the **same directory**:
 - `render_manager.py`
 - `blender_render_script.py`
-- `render.bat` (ou vos propres `.bat`)
+- `render.bat` (or your own `.bat` files)
 
-## Utilisation
+## Usage
 
-### Méthode 1 : Fichier .bat (recommandé)
+### Method 1: .bat File (Recommended)
 
-1. Dupliquer `render.bat`
-2. Modifier les variables en haut du fichier :
+1. Duplicate `render.bat`.
+2. Edit the variables at the top of the file:
    ```bat
    SET BLENDER_EXE="C:\Program Files\Blender Foundation\Blender 4.3\blender.exe"
-   SET BLEND_FILE="E:\projects\ma_scene.blend"
+   SET BLEND_FILE="E:\projects\my_scene.blend"
    SET OUTPUT_DIR="E:\projects\render_output"
    SET FRAME_START=1
    SET FRAME_END=250
    ```
-3. Double-cliquer sur le `.bat` pour lancer
+3. Double-click the `.bat` file to launch.
 
-### Méthode 2 : Ligne de commande
+### Method 2: Command Line
 
 ```bash
 python render_manager.py scene.blend -o ./render -s 1 -e 250
 ```
 
-Avec un chemin Blender personnalisé :
+With a custom Blender path:
 ```bash
 python render_manager.py scene.blend -o ./render -s 1 -e 250 --blender "C:\Program Files\Blender Foundation\Blender 4.3\blender.exe"
 ```
@@ -81,33 +81,38 @@ python render_manager.py scene.blend -o ./render -s 1 -e 250 --blender "C:\Progr
 
 | Argument | Description |
 |---|---|
-| `blend_file` | Chemin vers le fichier `.blend` |
-| `-o`, `--output` | Dossier de sortie des frames rendues |
-| `-s`, `--start` | Première frame à rendre |
-| `-e`, `--end` | Dernière frame à rendre |
-| `--blender` | Chemin vers l'exécutable Blender (défaut : `blender`) |
+| `blend_file` | Path to the `.blend` file |
+| `-o`, `--output` | Output folder for rendered frames |
+| `-s`, `--start` | First frame to render |
+| `-e`, `--end` | Last frame to render |
+| `--blender` | Path to the Blender executable (default: `blender`) |
+| `--factory-startup` | Starts Blender without user preferences or custom addons |
+| `--pack-external` | Automatically packs textures directly into a temporary blend copy before rendering |
+| `--assemble-mp4` | Runs FFmpeg to stitch rendered frames (PNG/EXR) into a video |
+| `--ffmpeg-fps` | Set the output video FPS (default: 24) |
+| `--ffmpeg-crf` | Set video compression quality (default: 18) |
 
-## Fichier de progression
+## Progress File
 
-Le fichier `render_progress.json` est créé dans le dossier de sortie. Il contient :
-- La liste des frames terminées
-- La dernière frame rendue
-- Le statut (en cours / terminé)
+The `render_progress.json` file is created inside the output folder. It contains:
+- The list of completed frames
+- The last rendered frame
+- The current status (in_progress / completed)
 
-**Pour re-rendre un projet déjà terminé** : supprimer `render_progress.json` du dossier de sortie.
+**To re-render an already completed project**: simply delete `render_progress.json` from the output folder, or use the "Resume Incomplete" check in the GUI which actively assesses the physical hard-drive frame presence!
 
-## Scénarios
+## Scenarios
 
-| Situation | Comportement |
+| Situation | Behavior |
 |---|---|
-| Premier lancement | Rend toutes les frames de start à end |
-| Blender crash | Relance automatiquement, reprend 1 frame avant le crash |
-| PC redémarre | Relancer le `.bat`, reprend automatiquement |
-| Rendu déjà terminé | Affiche un message, ne fait rien |
-| 5 crashes consécutifs sans progrès | S'arrête (problème probable avec la scène) |
+| First launch | Renders all frames from start to end |
+| Blender crashes | Restarts automatically, resumes 1 frame before the crash |
+| PC restarts | Relaunch the `.bat`, resumes automatically |
+| Render already complete | Displays a message, triggers FFmpeg if checked, does nothing else |
+| 5 consecutive crashes without progress | Stops entirely (probable issue with the scene) |
 
-## En cas de problème
+## Troubleshooting
 
-- **"Blender executable not found"** → Vérifier le chemin dans `BLENDER_EXE` du `.bat`
-- **"Blend file not found"** → Vérifier le chemin dans `BLEND_FILE`
-- **Crashes répétés** → Vérifier que la scène se rend correctement en ouvrant Blender manuellement
+- **"Blender executable not found"** → Check the `BLENDER_EXE` path in the `.bat` or GUI path settings.
+- **"Blend file not found"** → Check the `BLEND_FILE` path.
+- **Repeated crashes** → Ensure the scene renders correctly by manually opening it in Blender. Enable `--factory-startup` to rule out incompatible Addon interruptions (e.g., `bgl` deprecation exceptions).
