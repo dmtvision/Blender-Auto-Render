@@ -13,6 +13,7 @@ import os
 import sys
 import subprocess
 import threading
+import time
 import json
 import re
 from pathlib import Path
@@ -107,6 +108,7 @@ class RenderJobRow(ctk.CTkFrame):
         self.job_id = RenderJobRow._row_counter
         self.blender_versions = blender_versions
         self.on_delete = on_delete
+        self.is_active = False
         self._build_ui()
 
     def _build_ui(self):
@@ -237,6 +239,19 @@ class RenderJobRow(ctk.CTkFrame):
     def set_progress(self, percentage):
         self.progress_bar.set(percentage)
 
+    def set_active(self, active=True):
+        self.is_active = active
+        if active:
+            self.configure(border_color=ACCENT, border_width=2)
+            self.job_label.configure(text_color=ACCENT)
+        else:
+            self.configure(border_color=BORDER, border_width=1)
+            self.job_label.configure(text_color=TEXT_PRIMARY)
+
+    def update_id(self, new_id):
+        self.job_id = new_id
+        self.job_label.configure(text=f"Job #{self.job_id}")
+
     def _browse_blend(self):
         path = filedialog.askopenfilename(filetypes=[("Blender files", "*.blend")])
         if path: self.blend_path_var.set(path)
@@ -324,6 +339,7 @@ class BlenderRenderApp(ctk.CTk):
         self.job_rows = []
         self.running_process = None
         self.is_running = False
+        self.start_render_time = None
 
         self._build_ui()
         self._load_saved_jobs()
@@ -368,6 +384,10 @@ class BlenderRenderApp(ctk.CTk):
         self.logs_text = ctk.CTkTextbox(console_container, height=180, fg_color=BG_CARD, text_color=TEXT_PRIMARY, font=("Consolas", 11))
         self.logs_text.pack(fill="x")
         self.logs_text.configure(state="disabled")
+
+        # Global Status Info
+        self.status_bar = ctk.CTkLabel(self, text="Ready", text_color=TEXT_DIM)
+        self.status_bar.pack(side="bottom", anchor="w", padx=20, pady=(0, 10))
 
     def _show_settings(self):
         dialog = ctk.CTkToplevel(self)
@@ -417,6 +437,12 @@ class BlenderRenderApp(ctk.CTk):
 
     def _remove_job_row(self, row):
         row.destroy(); self.job_rows.remove(row)
+        self._update_job_indices()
+
+    def _update_job_indices(self):
+        for i, row in enumerate(self.job_rows, 1):
+            row.update_id(i)
+        RenderJobRow._row_counter = len(self.job_rows)
 
     def _save_jobs(self):
         configs = [row.get_config() for row in self.job_rows]
@@ -491,8 +517,10 @@ class BlenderRenderApp(ctk.CTk):
             err = r.validate()
             if err: messagebox.showerror("Error", err); return
         self.is_running = True
+        self.start_render_time = time.time()
         self.run_btn.pack_forget(); self.stop_btn.pack(side="right", padx=5)
         self._save_jobs()
+        self._update_time_elapsed()
         threading.Thread(target=self._run_all, args=(jobs,), daemon=True).start()
 
     def _run_all(self, jobs):
@@ -501,8 +529,11 @@ class BlenderRenderApp(ctk.CTk):
             for i, row in enumerate(jobs, 1):
                 if not self.is_running: break
                 self.current_job = row
+                self.after(0, lambda r=row: r.set_active(True))
                 cfg = row.get_config()
-                self._log_safe(f"\n▶ [{i}/{len(jobs)}] JOB: {os.path.basename(cfg['blend_file'])}")
+                msg = f"\n▶ [{i}/{len(jobs)}] JOB: {os.path.basename(cfg['blend_file'])}"
+                self._log_safe(msg)
+                self.after(0, lambda m=msg: self.status_bar.configure(text=m.strip()))
                 
                 cmd = [sys.executable, "-u", RENDER_MANAGER_SCRIPT, cfg["blend_file"]]
                 cmd += ["-o", "auto" if cfg["auto_out"] else str(cfg["output_dir"])]
@@ -527,15 +558,17 @@ class BlenderRenderApp(ctk.CTk):
                 elif "Draft" in p: cmd += ["--samples", "32", "--simplify", "1", "--volumes", "0"]
 
                 self.running_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                                        text=True, bufsize=1, encoding='utf-8', errors='replace',
-                                                        creationflags=0x08000000)
+                                                        text=True, bufsize=1, encoding='utf-8', errors='replace')
                 for line in iter(self.running_process.stdout.readline, ""):
                     if not self.is_running: break
                     self._log_safe(line.strip())
+                
                 self.running_process.wait()
+                self.after(0, lambda r=row: r.set_active(False))
             self._log_safe("\n🏁 " + ("FINISHED" if self.is_running else "STOPPED"))
         finally:
             self.is_running = False; self.running_process = None
+            self.start_render_time = None
             self.after(0, lambda: (self.stop_btn.pack_forget(), self.run_btn.pack(side="right", padx=5)))
 
     def _stop_render(self):
@@ -567,6 +600,23 @@ class BlenderRenderApp(ctk.CTk):
         target.configure(state="disabled")
 
     def _log_safe(self, msg): self.after(0, lambda: self._log(msg))
+
+    def _update_time_elapsed(self):
+        if not self.is_running or self.start_render_time is None:
+            return
+        
+        elapsed = time.time() - self.start_render_time
+        h = int(elapsed // 3600)
+        m = int((elapsed % 3600) // 60)
+        s = int(elapsed % 60)
+        time_str = f"Elapsed: {h:02d}:{m:02d}:{s:02d}"
+        
+        current_status = self.status_bar.cget("text")
+        if " | " in current_status:
+            current_status = current_status.split(" | ")[0]
+        
+        self.status_bar.configure(text=f"{current_status} | {time_str}")
+        self.after(1000, self._update_time_elapsed)
 
 if __name__ == "__main__":
     BlenderRenderApp().mainloop()

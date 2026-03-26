@@ -289,7 +289,12 @@ def main():
         avg = total_ts / count if count > 0 else 0
         rem_count = total_to_render - count
         eta, total_est = avg * rem_count, avg * total_to_render
-        def fmt(s): return time.strftime('%H:%M:%S', time.gmtime(s))
+        def fmt(s):
+            s = int(s)
+            h = s // 3600
+            m = (s % 3600) // 60
+            sec = s % 60
+            return f"{h:02d}:{m:02d}:{sec:02d}"
         print(f"OK ({dur:.1f}s) | {count}/{total_to_render} done | ETA: {fmt(eta)} | Total: {fmt(total_est)}", flush=True)
 
     print(f"\n[Worker {worker_id}] Finished. Rendered {rendered_count} frames this session.", flush=True)

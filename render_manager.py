@@ -118,7 +118,12 @@ def print_global_status(progress, total_frames):
     
     perc = (completed / total_frames) * 100
     
-    def fmt(s): return time.strftime('%H:%M:%S', time.gmtime(s))
+    def fmt(s): 
+        s = int(s)
+        h = s // 3600
+        m = (s % 3600) // 60
+        sec = s % 60
+        return f"{h:02d}:{m:02d}:{sec:02d}"
     
     status_line = f"\n[PROGRESS] {perc:3.1f}% | {completed}/{total_frames} frames | Remaining: {fmt(eta)} | Total: {fmt(total_est)}\n"
     print(status_line, flush=True)
@@ -314,7 +319,9 @@ def run(args: argparse.Namespace) -> None:
         frame_start = info['start'] if args.start == 'auto' else int(args.start)
         frame_end = info['end'] if args.end == 'auto' else int(args.end)
         output_dir = info['output'] if args.output == 'auto' else args.output
-        if not output_dir.endswith(('/', '\\')):
+        
+        # Only strip filename if we are in auto-mode and it looks like a file path
+        if args.output == 'auto' and not output_dir.endswith(('/', '\\')):
             output_dir = os.path.dirname(output_dir) or os.path.dirname(blend_file)
         print(f"  [i] Detected: frames {frame_start}-{frame_end}, output: {output_dir}", flush=True)
     else:
