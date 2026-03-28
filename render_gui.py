@@ -102,6 +102,8 @@ class RenderJobRow(ctk.CTkFrame):
     _row_counter = 0
 
     def __init__(self, master, blender_versions: list[dict], on_delete=None, **kwargs):
+        self.on_move_up = kwargs.pop("on_move_up", None)
+        self.on_move_down = kwargs.pop("on_move_down", None)
         super().__init__(master, fg_color=BG_CARD, corner_radius=12, border_width=1,
                          border_color=BORDER, **kwargs)
         RenderJobRow._row_counter += 1
@@ -109,8 +111,6 @@ class RenderJobRow(ctk.CTkFrame):
         self.blender_versions = blender_versions
         self.on_delete = on_delete
         self.is_active = False
-        self.on_move_up = kwargs.pop("on_move_up", None)
-        self.on_move_down = kwargs.pop("on_move_down", None)
         self._build_ui()
 
     def _build_ui(self):
@@ -531,11 +531,24 @@ class BlenderRenderApp(ctk.CTk):
 
     def _resume_unfinished(self):
         self._log("🔍 Checking for incomplete renders (physical files check)...")
+        jobs = [r for r in self.job_rows]
+        if not jobs: return
+        configs = [(r, r.get_config(), r.get_blender_exe()) for r in jobs]
+        threading.Thread(target=self._run_resume_check, args=(configs,), daemon=True).start()
+
+    def _run_resume_check(self, job_data):
         count = 0
-        for row in self.job_rows:
-            cfg = row.get_config()
+        import render_manager
+        for row, cfg, exe in job_data:
             out = cfg["output_dir"]
-            if not out or cfg.get("auto_out"): continue
+            blend = cfg["blend_file"]
+            if not out or cfg.get("auto_out"):
+                if exe and blend and os.path.exists(blend):
+                    info = render_manager.get_blend_info(exe, blend)
+                    if info and info.get("output"):
+                        out = os.path.dirname(info["output"]) if not info["output"].endswith(('/','\\')) else info["output"]
+            if not out: continue
+            
             prog_file = os.path.join(out, "render_progress.json")
             if os.path.exists(prog_file):
                 try:
@@ -565,45 +578,56 @@ class BlenderRenderApp(ctk.CTk):
                         try:
                             with open(prog_file, "w") as fw: json.dump(data, fw)
                         except: pass
-                        self._log(f"   Incomplete ({found_count}/{total} frames): {os.path.basename(cfg['blend_file'])}")
-                        row.enabled_var.set(True); count += 1
-                        if total > 0: row.set_progress(found_count / total)
+                        self._log_safe(f"   Incomplete ({found_count}/{total} frames): {os.path.basename(cfg['blend_file'])}")
+                        self.after(0, lambda r=row: r.enabled_var.set(True))
+                        count += 1
+                        if total > 0: self.after(0, lambda r=row, p=found_count/total: r.set_progress(p))
                     else: 
-                        row.enabled_var.set(False)
-                        row.set_progress(1.0)
+                        self.after(0, lambda r=row: (r.enabled_var.set(False), r.set_progress(1.0)))
                 except Exception as e:
-                    self._log(f"   Error parsing progress for {os.path.basename(cfg['blend_file'])}")
+                    self._log_safe(f"   Error parsing progress for {os.path.basename(cfg['blend_file'])}: {e}")
                     
-        if count > 0: self._log(f"✅ {count} job(s) ready.")
-        else: self._log("ℹ No incomplete renders found.")
+        if count > 0: self._log_safe(f"✅ {count} job(s) ready.")
+        else: self._log_safe("ℹ No incomplete renders found.")
 
     def _start_render(self):
         if self.is_running: return
-        jobs = [r for r in self.job_rows if r.enabled_var.get()]
-        if not jobs: return
-        for r in jobs:
-            err = r.validate()
-            if err: messagebox.showerror("Error", err); return
-        self.is_running = True
-        self.start_render_time = time.time()
-        self.run_btn.pack_forget(); self.stop_btn.pack(side="right", padx=5)
-        
-        # Capture all configs in main thread (critical for Tkinter safety)
-        configs = []
-        for r in jobs:
-            configs.append((r, r.get_config(), r.get_blender_exe()))
-        
-        self._save_jobs()
-        self._update_time_elapsed()
-        
-        workers = str(self.workers_var.get() or 1)
-        threading.Thread(target=self._run_all, args=(configs, workers), daemon=True).start()
+        try:
+            jobs = [r for r in self.job_rows if r.enabled_var.get()]
+            if not jobs: return
+            for r in jobs:
+                err = r.validate()
+                if err: messagebox.showerror("Error", err); return
+            self.is_running = True
+            self.start_render_time = time.time()
+            self.run_btn.pack_forget(); self.stop_btn.pack(side="right", padx=5)
+            
+            # Capture all configs in main thread (critical for Tkinter safety)
+            configs = []
+            for r in jobs:
+                configs.append((r, r.get_config(), r.get_blender_exe()))
+            
+            self._save_jobs()
+            self._update_time_elapsed()
+            
+            workers = str(self.workers_var.get() or 1)
+            threading.Thread(target=self._run_all, args=(configs, workers), daemon=True).start()
+        except Exception as e:
+            import traceback
+            err = f"Fatal Crash in _start_render:\n{e}\n{traceback.format_exc()}"
+            with open("gui_crash.log", "w") as f: f.write(err)
+            messagebox.showerror("Crash in _start_render", err)
+            self.is_running = False
+            self.start_render_time = None
+            self.stop_btn.pack_forget(); self.run_btn.pack(side="right", padx=5)
 
     def _run_all(self, job_data, workers):
+        with open("gui_crash.log", "a") as f: f.write(f"\n[Thread start] Jobs: {len(job_data)}, Workers: {workers}\n")
         self._log_safe("   [v] Initiating render thread...")
         try:
             self._log_safe(f"   [v] Workers: {workers} | Jobs: {len(job_data)}")
             for i, (row, cfg, blender_exe) in enumerate(job_data, 1):
+                with open("gui_crash.log", "a") as f: f.write(f"Running job {i}: {cfg['blend_file']}\n")
                 if not self.is_running: break
                 self.current_job = row
                 self.after(0, lambda r=row: r.set_active(True))
@@ -620,11 +644,18 @@ class BlenderRenderApp(ctk.CTk):
                     self._log_safe(f"❌ Error: Manager script not found at {RENDER_MANAGER_SCRIPT}")
                     continue
 
-                cmd = [sys.executable, "-u", str(RENDER_MANAGER_SCRIPT), str(cfg["blend_file"])]
+                python_exe = sys.executable.replace("pythonw.exe", "python.exe")
+                if "pythonw" in python_exe: 
+                    python_exe = python_exe.replace("pythonw", "python")
+                
+                step_val = str(cfg.get("frame_step", "1")).strip()
+                if not step_val: step_val = "1"
+                
+                cmd = [python_exe, "-u", str(RENDER_MANAGER_SCRIPT), str(cfg["blend_file"])]
                 cmd += ["-o", "auto" if cfg["auto_out"] else str(cfg["output_dir"])]
                 cmd += ["-s", "auto" if cfg["auto_range"] else str(cfg["frame_start"])]
                 cmd += ["-e", "auto" if cfg["auto_range"] else str(cfg["frame_end"])]
-                cmd += ["-st", str(cfg["frame_step"]), "--blender", str(blender_exe)]
+                cmd += ["-st", step_val, "--blender", str(blender_exe)]
                 cmd += ["--engine", "auto" if cfg["auto_engine"] else str(cfg["engine"])]
                 cmd += ["--workers", workers]
                 if cfg.get("factory_startup"):
@@ -663,6 +694,7 @@ class BlenderRenderApp(ctk.CTk):
                 for line in iter(self.running_process.stdout.readline, ""):
                     if not self.is_running: break
                     self._log_safe(line.strip())
+                    with open("gui_crash.log", "a", encoding="utf-8") as f: f.write(line + "\n")
                 
                 self.running_process.wait()
                 self.after(0, lambda r=row: r.set_active(False))
@@ -670,6 +702,7 @@ class BlenderRenderApp(ctk.CTk):
         except Exception as e:
             import traceback
             error_msg = f"Fatal Error in render thread:\n{e}\n{traceback.format_exc()}"
+            with open("gui_crash.log", "a") as f: f.write(error_msg + "\n")
             print(error_msg)
             self._log_safe(f"\n❌ FATAL THREAD ERROR: {e}")
         finally:

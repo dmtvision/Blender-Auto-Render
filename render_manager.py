@@ -384,6 +384,9 @@ def run(args: argparse.Namespace) -> None:
     else:
         frame_start, frame_end, output_dir = int(args.start), int(args.end), args.output
 
+    if not output_dir or output_dir.strip() == "":
+        output_dir = os.path.dirname(os.path.abspath(blend_file))
+
     os.makedirs(output_dir, exist_ok=True)
     progress_file = get_progress_path(output_dir)
     
