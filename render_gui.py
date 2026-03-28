@@ -595,16 +595,27 @@ class BlenderRenderApp(ctk.CTk):
                 if not self.is_running: break
                 self.current_job = row
                 self.after(0, lambda r=row: r.set_active(True))
-                cfg = row.get_config()
+                
+                try:
+                    cfg = row.get_config()
+                except Exception as e:
+                    self._log_safe(f"❌ Error getting config for Job #{row.job_id}: {e}")
+                    continue
+
                 msg = f"\n▶ [{i}/{len(jobs)}] JOB: {os.path.basename(cfg['blend_file'])}"
                 self._log_safe(msg)
                 self.after(0, lambda m=msg: self.status_bar.configure(text=m.strip()))
                 
+                blender_exe = row.get_blender_exe()
+                if not blender_exe:
+                    self._log_safe(f"❌ Error: Blender executable not found for Job #{row.job_id}")
+                    continue
+
                 cmd = [sys.executable, "-u", RENDER_MANAGER_SCRIPT, cfg["blend_file"]]
                 cmd += ["-o", "auto" if cfg["auto_out"] else str(cfg["output_dir"])]
                 cmd += ["-s", "auto" if cfg["auto_range"] else str(cfg["frame_start"])]
                 cmd += ["-e", "auto" if cfg["auto_range"] else str(cfg["frame_end"])]
-                cmd += ["-st", str(cfg["frame_step"]), "--blender", str(row.get_blender_exe())]
+                cmd += ["-st", str(cfg["frame_step"]), "--blender", str(blender_exe)]
                 cmd += ["--engine", "auto" if cfg["auto_engine"] else str(cfg["engine"])]
                 cmd += ["--workers", workers]
                 if cfg.get("factory_startup"):
@@ -627,7 +638,7 @@ class BlenderRenderApp(ctk.CTk):
                 p = cfg.get("preset", "Default")
                 if "Fast" in p: cmd += ["--samples", "128"]
                 elif "Draft" in p: cmd += ["--samples", "32", "--simplify", "1", "--volumes", "0"]
-
+ 
                 cflags = 0x08000000 if os.name == 'nt' else 0
                 self.running_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
                                                         text=True, bufsize=1, encoding='utf-8', errors='replace',
@@ -639,6 +650,11 @@ class BlenderRenderApp(ctk.CTk):
                 self.running_process.wait()
                 self.after(0, lambda r=row: r.set_active(False))
             self._log_safe("\n🏁 " + ("FINISHED" if self.is_running else "STOPPED"))
+        except Exception as e:
+            import traceback
+            error_msg = f"Fatal Error in render thread:\n{e}\n{traceback.format_exc()}"
+            print(error_msg)
+            self._log_safe(f"\n❌ FATAL THREAD ERROR: {e}")
         finally:
             self.is_running = False; self.running_process = None
             self.start_render_time = None
