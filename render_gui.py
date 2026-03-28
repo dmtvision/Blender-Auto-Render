@@ -194,6 +194,9 @@ class RenderJobRow(ctk.CTkFrame):
         ctk.CTkLabel(bf_row, text="→").pack(side="left")
         self.end_entry = ctk.CTkEntry(bf_row, textvariable=self.end_var, width=50, height=26, font=("", 11))
         self.end_entry.pack(side="left", padx=1)
+        ctk.CTkLabel(bf_row, text="Step", text_color=TEXT_DIM, font=("", 11)).pack(side="left", padx=(10, 2))
+        self.step_entry = ctk.CTkEntry(bf_row, textvariable=self.step_var, width=35, height=26, font=("", 11))
+        self.step_entry.pack(side="left", padx=1)
         self.auto_range_var = ctk.BooleanVar(value=True)
         self.auto_range_cb = ctk.CTkCheckBox(bf_row, text="Auto", variable=self.auto_range_var, font=("", 10), width=50, checkbox_width=16, checkbox_height=16, command=self._on_auto_toggle)
         self.auto_range_cb.pack(side="left", padx=5)
@@ -584,34 +587,40 @@ class BlenderRenderApp(ctk.CTk):
         self.is_running = True
         self.start_render_time = time.time()
         self.run_btn.pack_forget(); self.stop_btn.pack(side="right", padx=5)
+        
+        # Capture all configs in main thread (critical for Tkinter safety)
+        configs = []
+        for r in jobs:
+            configs.append((r, r.get_config(), r.get_blender_exe()))
+        
         self._save_jobs()
         self._update_time_elapsed()
-        threading.Thread(target=self._run_all, args=(jobs,), daemon=True).start()
+        
+        workers = str(self.workers_var.get() or 1)
+        threading.Thread(target=self._run_all, args=(configs, workers), daemon=True).start()
 
-    def _run_all(self, jobs):
+    def _run_all(self, job_data, workers):
+        self._log_safe("   [v] Initiating render thread...")
         try:
-            workers = str(self.workers_var.get() or 1)
-            for i, row in enumerate(jobs, 1):
+            self._log_safe(f"   [v] Workers: {workers} | Jobs: {len(job_data)}")
+            for i, (row, cfg, blender_exe) in enumerate(job_data, 1):
                 if not self.is_running: break
                 self.current_job = row
                 self.after(0, lambda r=row: r.set_active(True))
                 
-                try:
-                    cfg = row.get_config()
-                except Exception as e:
-                    self._log_safe(f"❌ Error getting config for Job #{row.job_id}: {e}")
-                    continue
-
-                msg = f"\n▶ [{i}/{len(jobs)}] JOB: {os.path.basename(cfg['blend_file'])}"
+                msg = f"\n▶ [{i}/{len(job_data)}] JOB: {os.path.basename(cfg['blend_file'])}"
                 self._log_safe(msg)
                 self.after(0, lambda m=msg: self.status_bar.configure(text=m.strip()))
                 
-                blender_exe = row.get_blender_exe()
                 if not blender_exe:
                     self._log_safe(f"❌ Error: Blender executable not found for Job #{row.job_id}")
                     continue
 
-                cmd = [sys.executable, "-u", RENDER_MANAGER_SCRIPT, cfg["blend_file"]]
+                if not os.path.exists(RENDER_MANAGER_SCRIPT):
+                    self._log_safe(f"❌ Error: Manager script not found at {RENDER_MANAGER_SCRIPT}")
+                    continue
+
+                cmd = [sys.executable, "-u", str(RENDER_MANAGER_SCRIPT), str(cfg["blend_file"])]
                 cmd += ["-o", "auto" if cfg["auto_out"] else str(cfg["output_dir"])]
                 cmd += ["-s", "auto" if cfg["auto_range"] else str(cfg["frame_start"])]
                 cmd += ["-e", "auto" if cfg["auto_range"] else str(cfg["frame_end"])]
@@ -639,10 +648,18 @@ class BlenderRenderApp(ctk.CTk):
                 if "Fast" in p: cmd += ["--samples", "128"]
                 elif "Draft" in p: cmd += ["--samples", "32", "--simplify", "1", "--volumes", "0"]
  
+                self._log_safe(f"   Launch command: {' '.join(cmd)}")
+                
                 cflags = 0x08000000 if os.name == 'nt' else 0
-                self.running_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                                        text=True, bufsize=1, encoding='utf-8', errors='replace',
-                                                        creationflags=cflags)
+                try:
+                    self.running_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                                                            text=True, bufsize=1, encoding='utf-8', errors='replace',
+                                                            creationflags=cflags)
+                except Exception as e:
+                    self._log_safe(f"❌ Error: Could not start process: {e}")
+                    self.after(0, lambda r=row: r.set_active(False))
+                    continue
+
                 for line in iter(self.running_process.stdout.readline, ""):
                     if not self.is_running: break
                     self._log_safe(line.strip())
