@@ -109,135 +109,165 @@ class RenderJobRow(ctk.CTkFrame):
         self.blender_versions = blender_versions
         self.on_delete = on_delete
         self.is_active = False
+        self.on_move_up = kwargs.pop("on_move_up", None)
+        self.on_move_down = kwargs.pop("on_move_down", None)
         self._build_ui()
 
     def _build_ui(self):
-        self.grid_columnconfigure(1, weight=1)
-        pad = {"padx": 10, "pady": 6}
-
+        self.grid_columnconfigure(0, weight=1)
+        
+        # --- HEADER ---
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
-        header_frame.grid(row=0, column=0, columnspan=3, sticky="ew", **pad)
-        header_frame.grid_columnconfigure(1, weight=1)
+        header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(4, 2))
+        header_frame.grid_columnconfigure(2, weight=1)
+
+        # Drag Handle (Visual only for now, buttons do the work)
+        self.drag_handle = ctk.CTkLabel(header_frame, text="⠿", font=("", 18), text_color=TEXT_DIM, cursor="fleur")
+        self.drag_handle.grid(row=0, column=0, padx=(0, 5))
+        
+        # Drag bindings
+        self.drag_handle.bind("<Button-1>", self._on_drag_start)
+        self.drag_handle.bind("<B1-Motion>", self._on_drag_motion)
 
         self.enabled_var = ctk.BooleanVar(value=True)
-        self.enabled_cb = ctk.CTkCheckBox(header_frame, text="", variable=self.enabled_var, width=24, checkbox_width=20, checkbox_height=20)
-        self.enabled_cb.grid(row=0, column=0, padx=(0, 8))
+        self.enabled_cb = ctk.CTkCheckBox(header_frame, text="", variable=self.enabled_var, width=20, checkbox_width=18, checkbox_height=18)
+        self.enabled_cb.grid(row=0, column=1, padx=(0, 5))
 
-        self.job_label = ctk.CTkLabel(header_frame, text=f"Job #{self.job_id}", font=ctk.CTkFont(size=14, weight="bold"), text_color=TEXT_PRIMARY)
-        self.job_label.grid(row=0, column=1, sticky="w")
+        self.job_label = ctk.CTkLabel(header_frame, text=f"Job #{self.job_id}", font=ctk.CTkFont(size=13, weight="bold"), text_color=TEXT_PRIMARY)
+        self.job_label.grid(row=0, column=2, sticky="w")
 
-        self.delete_btn = ctk.CTkButton(header_frame, text="✕", width=30, height=28, fg_color="transparent", hover_color="#e94560", command=self._on_delete)
-        self.delete_btn.grid(row=0, column=2, sticky="e")
+        # Reorder Buttons
+        self.up_btn = ctk.CTkButton(header_frame, text="▲", width=26, height=24, fg_color=BG_INPUT, command=lambda: self.on_move_up(self) if self.on_move_up else None)
+        self.up_btn.grid(row=0, column=3, padx=2)
+        self.down_btn = ctk.CTkButton(header_frame, text="▼", width=26, height=24, fg_color=BG_INPUT, command=lambda: self.on_move_down(self) if self.on_move_down else None)
+        self.down_btn.grid(row=0, column=4, padx=2)
 
-        # Blend file
-        ctk.CTkLabel(self, text=".blend", text_color=TEXT_DIM).grid(row=1, column=0, sticky="w", padx=(12, 4), pady=4)
-        file_frame = ctk.CTkFrame(self, fg_color="transparent")
-        file_frame.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(0, 10), pady=4)
-        file_frame.grid_columnconfigure(0, weight=1)
+        self.delete_btn = ctk.CTkButton(header_frame, text="✕", width=26, height=24, fg_color="transparent", hover_color="#e94560", command=self._on_delete)
+        self.delete_btn.grid(row=0, column=5, padx=(5, 0))
 
+        # --- BODY (TWO COLUMNS) ---
+        body_frame = ctk.CTkFrame(self, fg_color="transparent")
+        body_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=2)
+        body_frame.grid_columnconfigure(0, weight=6) 
+        body_frame.grid_columnconfigure(1, weight=4)
+
+        # LEFT COLUMN (Paths & Range)
+        left_col = ctk.CTkFrame(body_frame, fg_color="transparent")
+        left_col.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        left_col.grid_columnconfigure(1, weight=1)
+
+        # .blend
+        ctk.CTkLabel(left_col, text="File", text_color=TEXT_DIM, font=("", 11)).grid(row=0, column=0, sticky="w", padx=2)
+        f_frame = ctk.CTkFrame(left_col, fg_color="transparent")
+        f_frame.grid(row=0, column=1, sticky="ew")
+        f_frame.grid_columnconfigure(0, weight=1)
         self.blend_path_var = ctk.StringVar()
-        self.blend_entry = ctk.CTkEntry(file_frame, textvariable=self.blend_path_var, height=32, fg_color=BG_INPUT, border_color=BORDER)
-        self.blend_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-
-        self.browse_btn = ctk.CTkButton(file_frame, text="📂", width=36, height=32, fg_color=BG_INPUT, command=self._browse_blend)
-        self.browse_btn.grid(row=0, column=1)
-
-        # Version
-        ctk.CTkLabel(self, text="Version", text_color=TEXT_DIM).grid(row=2, column=0, sticky="w", padx=(12, 4), pady=4)
-        v_labels = [v["label"] for v in self.blender_versions]
-        default_v = v_labels[0] if v_labels else "None"
-        self.version_var = ctk.StringVar(value=default_v)
-        self.version_menu = ctk.CTkOptionMenu(self, variable=self.version_var, values=v_labels if v_labels else ["None"], fg_color=BG_INPUT, width=260)
-        self.version_menu.grid(row=2, column=1, columnspan=2, sticky="w", padx=(0, 10), pady=4)
+        self.blend_entry = ctk.CTkEntry(f_frame, textvariable=self.blend_path_var, height=28, font=("", 11), fg_color=BG_INPUT)
+        self.blend_entry.grid(row=0, column=0, sticky="ew", padx=(2, 2))
+        ctk.CTkButton(f_frame, text="📂", width=32, height=28, fg_color=BG_INPUT, command=self._browse_blend).grid(row=0, column=1)
 
         # Output
-        ctk.CTkLabel(self, text="Output", text_color=TEXT_DIM).grid(row=3, column=0, sticky="w", padx=(12, 4), pady=4)
-        out_frame = ctk.CTkFrame(self, fg_color="transparent")
-        out_frame.grid(row=3, column=1, columnspan=2, sticky="ew", padx=(0, 10), pady=4)
-        out_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(left_col, text="Out", text_color=TEXT_DIM, font=("", 11)).grid(row=1, column=0, sticky="w", padx=2)
+        o_frame = ctk.CTkFrame(left_col, fg_color="transparent")
+        o_frame.grid(row=1, column=1, sticky="ew")
+        o_frame.grid_columnconfigure(0, weight=1)
         self.output_var = ctk.StringVar()
-        self.output_entry = ctk.CTkEntry(out_frame, textvariable=self.output_var, height=32, fg_color=BG_INPUT)
-        self.output_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        self.browse_out_btn = ctk.CTkButton(out_frame, text="📂", width=36, height=32, fg_color=BG_INPUT, command=self._browse_output)
-        self.browse_out_btn.grid(row=0, column=1, padx=(0, 6))
+        self.output_entry = ctk.CTkEntry(o_frame, textvariable=self.output_var, height=28, font=("", 11), fg_color=BG_INPUT)
+        self.output_entry.grid(row=0, column=0, sticky="ew", padx=(2, 2))
+        self.browse_out_btn = ctk.CTkButton(o_frame, text="📂", width=32, height=28, fg_color=BG_INPUT, command=self._browse_output)
+        self.browse_out_btn.grid(row=0, column=1)
         self.auto_out_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(out_frame, text="Auto", variable=self.auto_out_var, width=60, command=self._on_auto_toggle).grid(row=0, column=2)
+        ctk.CTkCheckBox(o_frame, text="Auto", variable=self.auto_out_var, font=("", 10), width=50, checkbox_width=16, checkbox_height=16, command=self._on_auto_toggle).grid(row=0, column=2, padx=4)
 
-        # Range
-        ctk.CTkLabel(self, text="Frames", text_color=TEXT_DIM).grid(row=4, column=0, sticky="w", padx=(12, 4), pady=4)
-        range_frame = ctk.CTkFrame(self, fg_color="transparent")
-        range_frame.grid(row=4, column=1, columnspan=2, sticky="ew", padx=(0, 10), pady=4)
+        # Version & Frames
+        bf_row = ctk.CTkFrame(left_col, fg_color="transparent")
+        bf_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        v_labels = [v["label"] for v in self.blender_versions]
+        self.version_var = ctk.StringVar(value=v_labels[0] if v_labels else "None")
+        self.version_menu = ctk.CTkOptionMenu(bf_row, variable=self.version_var, values=v_labels or ["None"], height=26, font=("", 11), width=140)
+        self.version_menu.pack(side="left", padx=2)
+
+        ctk.CTkLabel(bf_row, text="Frames", text_color=TEXT_DIM, font=("", 11)).pack(side="left", padx=(10, 2))
         self.start_var = ctk.StringVar(value="1"); self.end_var = ctk.StringVar(value="250"); self.step_var = ctk.StringVar(value="1")
-        self.start_entry = ctk.CTkEntry(range_frame, textvariable=self.start_var, width=60)
-        self.start_entry.grid(row=0, column=0, padx=2)
-        ctk.CTkLabel(range_frame, text="→").grid(row=0, column=1)
-        self.end_entry = ctk.CTkEntry(range_frame, textvariable=self.end_var, width=60)
-        self.end_entry.grid(row=0, column=2, padx=2)
-        ctk.CTkLabel(range_frame, text="Step:", text_color=TEXT_DIM).grid(row=0, column=3, padx=(10, 2))
-        ctk.CTkEntry(range_frame, textvariable=self.step_var, width=40).grid(row=0, column=4, padx=2)
+        self.start_entry = ctk.CTkEntry(bf_row, textvariable=self.start_var, width=50, height=26, font=("", 11))
+        self.start_entry.pack(side="left", padx=1)
+        ctk.CTkLabel(bf_row, text="→").pack(side="left")
+        self.end_entry = ctk.CTkEntry(bf_row, textvariable=self.end_var, width=50, height=26, font=("", 11))
+        self.end_entry.pack(side="left", padx=1)
         self.auto_range_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(range_frame, text="Auto", variable=self.auto_range_var, width=60, command=self._on_auto_toggle).grid(row=0, column=5)
+        self.auto_range_cb = ctk.CTkCheckBox(bf_row, text="Auto", variable=self.auto_range_var, font=("", 10), width=50, checkbox_width=16, checkbox_height=16, command=self._on_auto_toggle)
+        self.auto_range_cb.pack(side="left", padx=5)
 
-        # Settings
-        ctk.CTkLabel(self, text="Settings", text_color=TEXT_DIM).grid(row=5, column=0, sticky="nw", padx=(12, 4), pady=(8, 4))
-        conf_frame = ctk.CTkFrame(self, fg_color="transparent")
-        conf_frame.grid(row=5, column=1, columnspan=2, sticky="ew", padx=(0, 10), pady=4)
+        # RIGHT COLUMN (Settings)
+        right_col = ctk.CTkFrame(body_frame, fg_color="transparent")
+        right_col.grid(row=0, column=1, sticky="nsew")
         
+        # Row 0: Engine & Scale
+        r0 = ctk.CTkFrame(right_col, fg_color="transparent")
+        r0.pack(fill="x", pady=1)
         self.engine_var = ctk.StringVar(value="CYCLES")
-        self.engine_menu = ctk.CTkOptionMenu(conf_frame, variable=self.engine_var, values=["CYCLES", "BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH"], width=150)
-        self.engine_menu.grid(row=0, column=0, padx=2, pady=2, sticky="w")
-        
+        self.engine_menu = ctk.CTkOptionMenu(r0, variable=self.engine_var, values=["CYCLES", "BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH"], height=26, font=("", 11), width=100)
+        self.engine_menu.pack(side="left", padx=1)
         self.auto_engine_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(conf_frame, text="Auto", variable=self.auto_engine_var, width=60, command=self._on_auto_toggle).grid(row=0, column=1, pady=2, sticky="w")
-        
-        ctk.CTkLabel(conf_frame, text="Scale:", text_color=TEXT_DIM).grid(row=0, column=2, padx=(20, 2), pady=2, sticky="e")
+        ctk.CTkCheckBox(r0, text="Auto", variable=self.auto_engine_var, font=("", 10), width=50, checkbox_width=16, checkbox_height=16, command=self._on_auto_toggle).pack(side="left", padx=4)
+        ctk.CTkLabel(r0, text="Scale", text_color=TEXT_DIM, font=("", 11)).pack(side="left", padx=(5, 2))
         self.scale_var = ctk.StringVar(value="100%")
-        ctk.CTkOptionMenu(conf_frame, variable=self.scale_var, values=["200%", "150%", "125%", "100%", "75%", "50%", "25%"], width=80).grid(row=0, column=3, padx=2, pady=2, sticky="w")
+        ctk.CTkOptionMenu(r0, variable=self.scale_var, values=["200%", "150%", "125%", "100%", "75%", "50%", "25%"], height=26, font=("", 11), width=75).pack(side="left", padx=1)
 
         # Row 1: Preset & Time Limit
-        ctk.CTkLabel(conf_frame, text="Preset:", text_color=TEXT_DIM).grid(row=1, column=0, padx=2, pady=2, sticky="e")
+        r1 = ctk.CTkFrame(right_col, fg_color="transparent")
+        r1.pack(fill="x", pady=1)
         self.preset_var = ctk.StringVar(value="Default")
-        ctk.CTkOptionMenu(conf_frame, variable=self.preset_var, values=["Default", "Fast (128)", "Draft (32+Simp)"], width=130).grid(row=1, column=1, padx=2, pady=2, sticky="w")
-        
-        ctk.CTkLabel(conf_frame, text="Limit (s):", text_color=TEXT_DIM).grid(row=1, column=2, padx=(20, 2), pady=2, sticky="e")
+        ctk.CTkOptionMenu(r1, variable=self.preset_var, values=["Default", "Fast (128)", "Draft (32+Simp)"], height=26, font=("", 11), width=100).pack(side="left", padx=1)
+        ctk.CTkLabel(r1, text="Limit", text_color=TEXT_DIM, font=("", 11)).pack(side="left", padx=(5, 2))
         self.time_limit_var = ctk.StringVar(value="0")
-        ctk.CTkEntry(conf_frame, textvariable=self.time_limit_var, width=60).grid(row=1, column=3, padx=2, pady=2, sticky="w")
+        ctk.CTkEntry(r1, textvariable=self.time_limit_var, width=50, height=26, font=("", 11)).pack(side="left", padx=1)
+        ctk.CTkButton(r1, text="🔍 Auto-Detect", width=85, height=26, font=("", 10), fg_color=BG_INPUT, command=self._detect_settings).pack(side="right", padx=1)
 
-        # Row 2: Factory Startup & Detect Button
-        self.factory_startup_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(conf_frame, text="Safe Mode (Factory Startup)", variable=self.factory_startup_var).grid(row=2, column=0, columnspan=2, sticky="w", padx=2, pady=(10, 2))
-        
-        ctk.CTkButton(conf_frame, text="🔍 Auto-Detect", width=110, height=28, fg_color=BG_INPUT, hover_color=ACCENT_HOVER, command=self._detect_settings).grid(row=2, column=2, columnspan=2, sticky="e", padx=2, pady=(10, 2))
-        
-        # Row 3: Packing & FFmpeg
-        self.pack_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(conf_frame, text="Pack External Data", variable=self.pack_var).grid(row=3, column=0, columnspan=2, sticky="w", padx=2, pady=4)
-        
-        self.assemble_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(conf_frame, text="Assemble Video (MP4)", variable=self.assemble_var).grid(row=3, column=2, columnspan=2, sticky="w", padx=2, pady=4)
+        # Row 2: Flags & Options
+        r2 = ctk.CTkFrame(right_col, fg_color="transparent")
+        r2.pack(fill="x", pady=2)
+        self.factory_startup_var = ctk.BooleanVar(value=False); self.pack_var = ctk.BooleanVar(value=False); self.assemble_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(r2, text="Safe", variable=self.factory_startup_var, font=("", 10), checkbox_width=14, checkbox_height=14).pack(side="left", padx=2)
+        ctk.CTkCheckBox(r2, text="Pack", variable=self.pack_var, font=("", 10), checkbox_width=14, checkbox_height=14).pack(side="left", padx=2)
+        ctk.CTkCheckBox(r2, text="Video", variable=self.assemble_var, font=("", 10), checkbox_width=14, checkbox_height=14).pack(side="left", padx=2)
 
-        # Video Settings (Row 4)
-        vid_frame = ctk.CTkFrame(conf_frame, fg_color="transparent")
-        vid_frame.grid(row=4, column=0, columnspan=4, sticky="ew", pady=(0, 2))
-        
-        ctk.CTkLabel(vid_frame, text="Video FPS:", text_color=TEXT_DIM).pack(side="left", padx=(2, 2))
+        # Video Settings (Row 3 in new layout)
+        r3 = ctk.CTkFrame(right_col, fg_color="transparent")
+        r3.pack(fill="x", pady=1)
+        ctk.CTkLabel(r3, text="FPS:", text_color=TEXT_DIM, font=("", 11)).pack(side="left", padx=(2, 2))
         self.fps_var = ctk.StringVar(value="24")
-        ctk.CTkEntry(vid_frame, textvariable=self.fps_var, width=50).pack(side="left", padx=2)
-        
-        ctk.CTkLabel(vid_frame, text="Compression:", text_color=TEXT_DIM).pack(side="left", padx=(15, 2))
+        ctk.CTkEntry(r3, textvariable=self.fps_var, width=40, height=26, font=("", 11)).pack(side="left", padx=1)
+        ctk.CTkLabel(r3, text="Quality:", text_color=TEXT_DIM, font=("", 11)).pack(side="left", padx=(10, 2))
         self.quality_var = ctk.StringVar(value="CRF 18 (High)")
-        ctk.CTkOptionMenu(vid_frame, variable=self.quality_var, values=["CRF 18 (High)", "CRF 23 (Medium)", "CRF 28 (Low)"], width=130).pack(side="left", padx=2)
+        ctk.CTkOptionMenu(r3, variable=self.quality_var, values=["CRF 18 (High)", "CRF 23 (Medium)", "CRF 28 (Low)"], height=26, font=("", 11), width=120).pack(side="left", padx=1)
 
-        # Progress Bar
-        self.progress_bar = ctk.CTkProgressBar(self, height=6, fg_color=BG_DARK, progress_color=SUCCESS)
-        self.progress_bar.grid(row=6, column=0, columnspan=3, sticky="ew", padx=10, pady=(4, 10))
+        # Progress
+        self.progress_bar = ctk.CTkProgressBar(self, height=4, fg_color=BG_DARK, progress_color=SUCCESS)
+        self.progress_bar.grid(row=2, column=0, sticky="ew", padx=10, pady=(4, 6))
         self.progress_bar.set(0)
 
         self._on_auto_toggle()
 
+    def _on_drag_start(self, event):
+        self._drag_start_y = event.y_root
+
+    def _on_drag_motion(self, event):
+        delta = event.y_root - self._drag_start_y
+        threshold = 40 # px to trigger swap
+        if delta > threshold:
+            if self.on_move_down: 
+                self.on_move_down(self)
+                self._drag_start_y = event.y_root
+        elif delta < -threshold:
+            if self.on_move_up: 
+                self.on_move_up(self)
+                self._drag_start_y = event.y_root
+
     def _on_auto_toggle(self):
         st_out = "disabled" if self.auto_out_var.get() else "normal"
-        self.output_entry.configure(state=st_out); self.browse_out_btn.configure(state=st_out)
+        self.output_entry.configure(state=st_out)
+        if hasattr(self, "browse_out_btn"): self.browse_out_btn.configure(state=st_out)
         
         st_range = "disabled" if self.auto_range_var.get() else "normal"
         self.start_entry.configure(state=st_range); self.end_entry.configure(state=st_range)
@@ -443,13 +473,35 @@ class BlenderRenderApp(ctk.CTk):
         ctk.CTkButton(dialog, text="Save & Restart App", fg_color=ACCENT, command=save).pack(pady=20)
 
     def _add_job_row(self, config=None):
-        row = RenderJobRow(self.jobs_scroll, self.blender_versions, on_delete=self._remove_job_row)
-        row.pack(fill="x", pady=6)
+        row = RenderJobRow(self.jobs_scroll, self.blender_versions, 
+                           on_delete=self._remove_job_row,
+                           on_move_up=self._move_job_up,
+                           on_move_down=self._move_job_down)
+        row.pack(fill="x", pady=4) 
         if config: row.set_config(config)
         self.job_rows.append(row); return row
 
     def _remove_job_row(self, row):
         row.destroy(); self.job_rows.remove(row)
+        self._update_job_indices()
+
+    def _move_job_up(self, row):
+        idx = self.job_rows.index(row)
+        if idx > 0:
+            self.job_rows[idx], self.job_rows[idx-1] = self.job_rows[idx-1], self.job_rows[idx]
+            self._reorder_rows_ui()
+
+    def _move_job_down(self, row):
+        idx = self.job_rows.index(row)
+        if idx < len(self.job_rows) - 1:
+            self.job_rows[idx], self.job_rows[idx+1] = self.job_rows[idx+1], self.job_rows[idx]
+            self._reorder_rows_ui()
+
+    def _reorder_rows_ui(self):
+        for row in self.job_rows:
+            row.pack_forget()
+        for row in self.job_rows:
+            row.pack(fill="x", pady=4)
         self._update_job_indices()
 
     def _update_job_indices(self):
