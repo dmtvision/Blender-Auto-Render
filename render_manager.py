@@ -131,7 +131,7 @@ def print_global_status(progress, total_frames):
 def launch_blender(blender_exe: str, blend_file: str, output_path: str,
                    frame_start: int, frame_end: int, frame_step: int, engine: str, 
                    progress_file: str, worker_id: int = 0, samples=None, simplify=None, volumes=None, total_frames=0,
-                   use_factory_startup=False) -> int:
+                   use_factory_startup=False, resolution_scale=None, time_limit=None) -> int:
     cmd = [
         blender_exe,
         "-noaudio",
@@ -139,6 +139,9 @@ def launch_blender(blender_exe: str, blend_file: str, output_path: str,
     ]
     if use_factory_startup:
         cmd.insert(1, "--factory-startup")
+    else:
+        # If not using factory settings, ensure scripts are allowed to run (drivers, etc.)
+        cmd.insert(1, "-y") # --enable-autoexec
 
     cmd.extend([
         "-P", INTERNAL_SCRIPT,
@@ -154,13 +157,18 @@ def launch_blender(blender_exe: str, blend_file: str, output_path: str,
     if samples: cmd.extend(["--samples", str(samples)])
     if simplify: cmd.extend(["--simplify", str(simplify)])
     if volumes: cmd.extend(["--volumes", str(volumes)])
+    if resolution_scale: cmd.extend(["--resolution-scale", str(resolution_scale)])
+    if time_limit and str(time_limit) != "0": cmd.extend(["--time-limit", str(time_limit)])
 
     print(f"  [Worker {worker_id}] CMD: {' '.join(cmd[:6])}... (truncated)", flush=True)
 
     try:
         # Use Popen to pipe stdout in real-time
+        # creationflags=0x08000000 (CREATE_NO_WINDOW) hides the console on Windows
+        cflags = 0x08000000 if os.name == 'nt' else 0
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                text=True, bufsize=1, encoding='utf-8', errors='replace')
+                                text=True, bufsize=1, encoding='utf-8', errors='replace',
+                                creationflags=cflags)
         
         for line in iter(proc.stdout.readline, ""):
             line = line.strip()
@@ -188,7 +196,11 @@ def launch_blender(blender_exe: str, blend_file: str, output_path: str,
                 print(f"  {line}", flush=True)
             elif "Error" in line or "Exception" in line or "FAILED" in line:
                 print(f"  [Worker {worker_id}] ⚠ {line}", flush=True)
-            # else: silently skip (Blender verbose output)
+            elif "Warning" in line or "Python" in line:
+                print(f"  [Worker {worker_id}] i {line}", flush=True)
+            else:
+                # Less aggressive skipping: print it anyway to help debug if it's not noise
+                print(f"  [Blender] {line}", flush=True)
 
         proc.stdout.close()
         return proc.wait()
@@ -287,6 +299,51 @@ def assemble_video(output_dir: str, frame_start: int, fps: str, crf: str):
     except Exception as e:
         print(f"  [!] FFmpeg error: {e}", flush=True)
 
+def generate_render_report(output_dir: str, args: argparse.Namespace, progress: dict, total_frames: int):
+    """Generates a summary report of the render session."""
+    report_path = os.path.join(output_dir, "render_report.txt")
+    try:
+        times = [float(v) for v in progress.get("frame_times", {}).values()]
+        if not times: return
+        
+        total_time = sum(times)
+        avg = total_time / len(times)
+        min_t = min(times)
+        max_t = max(times)
+        
+        def fmt(s): 
+            s = int(s)
+            h = s // 3600
+            m = (s % 3600) // 60
+            sec = s % 60
+            return f"{h:02d}:{m:02d}:{sec:02d}"
+
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write("========================================\n")
+            f.write("        BLENDER RENDER REPORT\n")
+            f.write("========================================\n\n")
+            f.write(f"Date:        {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Blend file:  {os.path.basename(args.blend_file)}\n")
+            f.write(f"Blender:     {args.blender}\n")
+            f.write(f"Engine:      {getattr(args, 'engine', 'auto')}\n")
+            f.write(f"Scale:       {getattr(args, 'resolution_scale', '100%')}\n")
+            f.write(f"Samples:     {getattr(args, 'samples', 'Default')}\n")
+            f.write(f"Time Limit:  {getattr(args, 'time_limit', 'None')}s\n")
+            f.write(f"Workers:     {getattr(args, 'workers', 1)}\n\n")
+            f.write("----------------------------------------\n")
+            f.write(f"Total Frames:    {total_frames}\n")
+            f.write(f"Completed:       {len(times)}\n")
+            f.write(f"Total Time:      {fmt(total_time)} ({round(total_time, 2)}s)\n")
+            f.write(f"Average Frame:   {round(avg, 2)}s\n")
+            f.write(f"Shortest Frame:  {round(min_t, 2)}s\n")
+            f.write(f"Longest Frame:   {round(max_t, 2)}s\n")
+            f.write("----------------------------------------\n")
+            f.write("\nRendered with Blender Auto-Render Manager\n")
+            
+        print(f"  [✓] Render report saved to: {report_path}", flush=True)
+    except Exception as e:
+        print(f"  [!] Failed to generate report: {e}", flush=True)
+
 def run(args: argparse.Namespace) -> None:
     blend_file = os.path.abspath(args.blend_file)
     blender_exe = args.blender
@@ -370,7 +427,8 @@ def run(args: argparse.Namespace) -> None:
                 blender_exe, blend_file, output_dir, frame_start, frame_end, step, 
                 getattr(args, 'engine', 'auto'), progress_file, worker_id, 
                 getattr(args, 'samples', None), getattr(args, 'simplify', None), 
-                getattr(args, 'volumes', None), total_frames, getattr(args, 'factory_startup', False)
+                getattr(args, 'volumes', None), total_frames, getattr(args, 'factory_startup', False),
+                getattr(args, 'resolution_scale', None), getattr(args, 'time_limit', None)
             )
             
             if exit_code == 0: crashes = 0
@@ -390,6 +448,10 @@ def run(args: argparse.Namespace) -> None:
     if final:
         done = len(final.get("completed_frames", []))
         print(f"\n  SESSION ENDED — {done}/{total_frames} frames completed.", flush=True)
+        
+        # Reports
+        generate_render_report(output_dir, args, final, total_frames)
+        
         if done >= total_frames and getattr(args, 'assemble_mp4', False):
             assemble_video(output_dir, frame_start, getattr(args, 'ffmpeg_fps', 24), getattr(args, 'ffmpeg_crf', 18))
     else:
@@ -411,6 +473,8 @@ def main() -> None:
     parser.add_argument("--samples")
     parser.add_argument("--simplify")
     parser.add_argument("--volumes")
+    parser.add_argument("--resolution-scale")
+    parser.add_argument("--time-limit")
     parser.add_argument("--factory-startup", action="store_true")
     parser.add_argument("--pack-external", action="store_true")
     parser.add_argument("--assemble-mp4", action="store_true")

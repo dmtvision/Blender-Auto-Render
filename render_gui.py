@@ -185,31 +185,40 @@ class RenderJobRow(ctk.CTkFrame):
         
         self.engine_var = ctk.StringVar(value="CYCLES")
         self.engine_menu = ctk.CTkOptionMenu(conf_frame, variable=self.engine_var, values=["CYCLES", "BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH"], width=150)
-        self.engine_menu.grid(row=0, column=0, padx=2, pady=2)
+        self.engine_menu.grid(row=0, column=0, padx=2, pady=2, sticky="w")
         
         self.auto_engine_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(conf_frame, text="Auto", variable=self.auto_engine_var, width=60, command=self._on_auto_toggle).grid(row=0, column=1, pady=2)
+        ctk.CTkCheckBox(conf_frame, text="Auto", variable=self.auto_engine_var, width=60, command=self._on_auto_toggle).grid(row=0, column=1, pady=2, sticky="w")
         
-        ctk.CTkLabel(conf_frame, text="Preset:", text_color=TEXT_DIM).grid(row=0, column=2, padx=(15, 2), pady=2)
+        ctk.CTkLabel(conf_frame, text="Scale:", text_color=TEXT_DIM).grid(row=0, column=2, padx=(20, 2), pady=2, sticky="e")
+        self.scale_var = ctk.StringVar(value="100%")
+        ctk.CTkOptionMenu(conf_frame, variable=self.scale_var, values=["200%", "150%", "125%", "100%", "75%", "50%", "25%"], width=80).grid(row=0, column=3, padx=2, pady=2, sticky="w")
+
+        # Row 1: Preset & Time Limit
+        ctk.CTkLabel(conf_frame, text="Preset:", text_color=TEXT_DIM).grid(row=1, column=0, padx=2, pady=2, sticky="e")
         self.preset_var = ctk.StringVar(value="Default")
-        ctk.CTkOptionMenu(conf_frame, variable=self.preset_var, values=["Default", "Fast (128)", "Draft (32+Simp)"], width=130).grid(row=0, column=3, padx=2, pady=2)
+        ctk.CTkOptionMenu(conf_frame, variable=self.preset_var, values=["Default", "Fast (128)", "Draft (32+Simp)"], width=130).grid(row=1, column=1, padx=2, pady=2, sticky="w")
         
-        # Factory Startup & Detect Button (Row 1)
+        ctk.CTkLabel(conf_frame, text="Limit (s):", text_color=TEXT_DIM).grid(row=1, column=2, padx=(20, 2), pady=2, sticky="e")
+        self.time_limit_var = ctk.StringVar(value="0")
+        ctk.CTkEntry(conf_frame, textvariable=self.time_limit_var, width=60).grid(row=1, column=3, padx=2, pady=2, sticky="w")
+
+        # Row 2: Factory Startup & Detect Button
         self.factory_startup_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(conf_frame, text="Factory Startup (Ignore Addons / Safe Mode)", variable=self.factory_startup_var).grid(row=1, column=0, columnspan=2, sticky="w", padx=2, pady=(10, 2))
+        ctk.CTkCheckBox(conf_frame, text="Safe Mode (Factory Startup)", variable=self.factory_startup_var).grid(row=2, column=0, columnspan=2, sticky="w", padx=2, pady=(10, 2))
         
-        ctk.CTkButton(conf_frame, text="🔍 Auto-Detect", width=100, height=28, fg_color=BG_INPUT, hover_color=ACCENT_HOVER, command=self._detect_settings).grid(row=1, column=3, sticky="e", padx=2, pady=(10, 2))
+        ctk.CTkButton(conf_frame, text="🔍 Auto-Detect", width=110, height=28, fg_color=BG_INPUT, hover_color=ACCENT_HOVER, command=self._detect_settings).grid(row=2, column=2, columnspan=2, sticky="e", padx=2, pady=(10, 2))
         
-        # Packing & FFmpeg (Row 2)
+        # Row 3: Packing & FFmpeg
         self.pack_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(conf_frame, text="Pack External Data", variable=self.pack_var).grid(row=2, column=0, columnspan=2, sticky="w", padx=2, pady=4)
+        ctk.CTkCheckBox(conf_frame, text="Pack External Data", variable=self.pack_var).grid(row=3, column=0, columnspan=2, sticky="w", padx=2, pady=4)
         
         self.assemble_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(conf_frame, text="Assemble MP4 Video", variable=self.assemble_var).grid(row=2, column=2, columnspan=2, sticky="w", padx=2, pady=4)
+        ctk.CTkCheckBox(conf_frame, text="Assemble Video (MP4)", variable=self.assemble_var).grid(row=3, column=2, columnspan=2, sticky="w", padx=2, pady=4)
 
-        # Video Settings (Row 3)
+        # Video Settings (Row 4)
         vid_frame = ctk.CTkFrame(conf_frame, fg_color="transparent")
-        vid_frame.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(0, 2))
+        vid_frame.grid(row=4, column=0, columnspan=4, sticky="ew", pady=(0, 2))
         
         ctk.CTkLabel(vid_frame, text="Video FPS:", text_color=TEXT_DIM).pack(side="left", padx=(2, 2))
         self.fps_var = ctk.StringVar(value="24")
@@ -293,6 +302,8 @@ class RenderJobRow(ctk.CTkFrame):
             "factory_startup": self.factory_startup_var.get(),
             "pack_external": self.pack_var.get(),
             "assemble_mp4": self.assemble_var.get(),
+            "resolution_scale": self.scale_var.get(),
+            "time_limit": self.time_limit_var.get(),
             "fps": self.fps_var.get(),
             "quality": self.quality_var.get()
         }
@@ -313,6 +324,8 @@ class RenderJobRow(ctk.CTkFrame):
         self.factory_startup_var.set(config.get("factory_startup", False))
         self.pack_var.set(config.get("pack_external", False))
         self.assemble_var.set(config.get("assemble_mp4", False))
+        self.scale_var.set(config.get("resolution_scale", "100%"))
+        self.time_limit_var.set(config.get("time_limit", "0"))
         self.fps_var.set(config.get("fps", "24"))
         self.quality_var.set(config.get("quality", "CRF 18 (High)"))
         self._on_auto_toggle()
@@ -553,12 +566,20 @@ class BlenderRenderApp(ctk.CTk):
                     except: crf = "18"
                     cmd += ["--ffmpeg-fps", str(cfg["fps"]), "--ffmpeg-crf", crf]
                 
+                if cfg.get("resolution_scale"):
+                    cmd += ["--resolution-scale", str(cfg["resolution_scale"])]
+                
+                if cfg.get("time_limit") and str(cfg["time_limit"]) != "0":
+                    cmd += ["--time-limit", str(cfg["time_limit"])]
+                
                 p = cfg.get("preset", "Default")
                 if "Fast" in p: cmd += ["--samples", "128"]
                 elif "Draft" in p: cmd += ["--samples", "32", "--simplify", "1", "--volumes", "0"]
 
+                cflags = 0x08000000 if os.name == 'nt' else 0
                 self.running_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                                        text=True, bufsize=1, encoding='utf-8', errors='replace')
+                                                        text=True, bufsize=1, encoding='utf-8', errors='replace',
+                                                        creationflags=cflags)
                 for line in iter(self.running_process.stdout.readline, ""):
                     if not self.is_running: break
                     self._log_safe(line.strip())

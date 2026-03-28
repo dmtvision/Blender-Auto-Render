@@ -34,6 +34,9 @@ The interface allows you to:
 - **Run** the render directly with a live console tracker.
 - **Save** jobs so they persist on the next launch.
 - **Toggle** advanced features like missing-frame detection, EXR/PNG to MP4 FFmpeg assembly, external data packing, and Factory Startup isolation.
+- **Control** resolution scaling (from 25% to 200%) and Cycles time-limit per frame directly from the UI.
+- **Render Report**: Automatically generates a `render_report.txt` with statistics (average/min/max time per frame, total duration).
+- **Memory Management**: Automatically clears Blender caches and orphan data between frames to prevent VRAM buildup.
 
 ## Installation
 
@@ -91,6 +94,8 @@ python render_manager.py scene.blend -o ./render -s 1 -e 250 --blender "C:\Progr
 | `--assemble-mp4` | Runs FFmpeg to stitch rendered frames (PNG/EXR) into a video |
 | `--ffmpeg-fps` | Set the output video FPS (default: 24) |
 | `--ffmpeg-crf` | Set video compression quality (default: 18) |
+| `--resolution-scale` | Set the resolution percentage (e.g. 100%, 50%, 200%) |
+| `--time-limit` | Set the max render time in seconds (Cycles only) |
 
 ## Progress File
 

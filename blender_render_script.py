@@ -89,7 +89,7 @@ def setup_performance_gpu(engine):
                 print(f"  [GPU] {active_count} device(s) enabled via {best_type}", flush=True)
                 
                 # Performance settings
-                scene.render.use_persistent_data = True
+                scene.render.use_persistent_data = False
                 try:
                     scene.cycles.use_spatial_splits = True
                 except Exception:
@@ -203,6 +203,15 @@ def main():
         scene.render.simplify_subdivision = int(simplify)
         print(f"  [i] Simplify: level {simplify}", flush=True)
 
+    # Overrides: resolution scale
+    res_scale = args.get("resolution-scale")
+    if res_scale:
+        try:
+            val = int(res_scale.replace("%", ""))
+            scene.render.resolution_percentage = val
+            print(f"  [i] Resolution Scale: {val}%", flush=True)
+        except: pass
+
     # Overrides: volumes
     if args.get("volumes") == "0":
         if hasattr(scene, "cycles"): 
@@ -213,11 +222,27 @@ def main():
             if hasattr(scene.eevee, "use_volumetric"): scene.eevee.use_volumetric = False 
         print(f"  [i] Volumes: disabled", flush=True)
 
+    # Overrides: time limit (Cycles)
+    t_limit = args.get("time-limit")
+    if t_limit and t_limit != "0" and scene.render.engine == 'CYCLES':
+        try:
+            val = float(t_limit)
+            scene.cycles.time_limit = val
+            print(f"  [i] Cycles Time Limit: {val}s", flush=True)
+        except: pass
+
     # Build output path
-    if os.path.isdir(bpy.path.abspath(output_path)):
-        base_path = bpy.path.abspath(os.path.join(output_path, "frame_"))
+    # If the path exists as a dir, or if it doesn't exist but has no extension 
+    # (heuristic for directory vs file prefix)
+    abs_out = bpy.path.abspath(output_path)
+    if os.path.isdir(abs_out) or not os.path.splitext(os.path.basename(abs_out))[1]:
+        # Treat as directory
+        os.makedirs(abs_out, exist_ok=True)
+        base_path = os.path.join(abs_out, "frame_")
     else:
-        base_path = bpy.path.abspath(output_path)
+        # Treat as prefix
+        os.makedirs(os.path.dirname(abs_out), exist_ok=True)
+        base_path = abs_out
     
     render_range = list(range(frame_start, frame_end + 1, frame_step))
     total_to_render = len(render_range)
@@ -265,6 +290,13 @@ def main():
             print(f"FAILED: {e}", flush=True)
             continue
         
+        # Memory Cleanup
+        try:
+            import gc
+            gc.collect()
+            bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+        except: pass
+        
         dur = time.time() - t0
         rendered_count += 1
         
@@ -272,10 +304,14 @@ def main():
         with SimpleFileLock(progress_path):
             progress = load_progress(progress_path)
             if progress is None:
-                progress = {"completed_frames": [], "total_time_spent": 0.0, "claimed_frames": {}}
+                progress = {"completed_frames": [], "total_time_spent": 0.0, "claimed_frames": {}, "frame_times": {}}
+            if "frame_times" not in progress: progress["frame_times"] = {}
             completed_set = set(progress.get("completed_frames", []))
             completed_set.add(frame)
             progress["completed_frames"] = sorted(completed_set)
+            # Store frame duration
+            progress["frame_times"][str(frame)] = round(dur, 2)
+            
             progress["total_time_spent"] = progress.get("total_time_spent", 0.0) + dur
             claimed = progress.get("claimed_frames", {})
             if worker_id in claimed and frame in claimed[worker_id]: claimed[worker_id].remove(frame)
