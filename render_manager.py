@@ -15,7 +15,42 @@ import sys
 import time
 import tempfile
 import threading
+import re
 from pathlib import Path
+
+def get_file_prefix(blend_file: str) -> str:
+    blend_filename = os.path.basename(blend_file)
+    if not blend_filename:
+        return "FRM_"
+        
+    base = os.path.splitext(blend_filename)[0]
+    version = ""
+    # find version pattern at the end: _v2, v03, -v4, etc.
+    v_match = re.search(r'[-_]*[vV](\d+)$', base)
+    if not v_match:
+        # just numbers after dash/underscore
+        v_match = re.search(r'[-_]+(\d+)$', base)
+        
+    if v_match:
+        version = "v" + v_match.group(1)
+        base = base[:v_match.start()]
+        
+    # extract words based on non-alphanumeric, or CamelCase
+    clean = re.sub(r'[^a-zA-Z0-9]', ' ', base)
+    clean = re.sub(r'([a-z])([A-Z])', r'\1 \2', clean)
+    words = clean.split()
+    
+    if len(words) > 1:
+        abbr = "".join(w[0].upper() for w in words if w)
+    elif len(words) == 1:
+        abbr = words[0][:4].upper()
+    else:
+        abbr = "FRM"
+        
+    if version:
+        return f"{abbr}_{version}_"
+    else:
+        return f"{abbr}_"
 
 # Force UTF-8 for stdout/stderr to avoid charmap errors
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -95,10 +130,11 @@ def save_progress(output_dir: str, data: dict) -> None:
         if os.path.exists(path): os.unlink(path)
         os.rename(tmp_path, path)
 
-def init_progress(blend_file: str, output_dir: str, frame_start: int, frame_end: int) -> dict:
+def init_progress(blend_file: str, output_dir: str, prefix: str, frame_start: int, frame_end: int) -> dict:
     return {
         "blend_file": os.path.abspath(blend_file),
         "output_dir": os.path.abspath(output_dir),
+        "prefix": prefix,
         "frame_start": frame_start, "frame_end": frame_end,
         "completed_frames": [], "last_completed_frame": None,
         "status": "in_progress", "total_time_spent": 0.0,
@@ -128,7 +164,7 @@ def print_global_status(progress, total_frames):
     status_line = f"\n[PROGRESS] {perc:3.1f}% | {completed}/{total_frames} frames | Remaining: {fmt(eta)} | Total: {fmt(total_est)}\n"
     print(status_line, flush=True)
 
-def launch_blender(blender_exe: str, blend_file: str, output_path: str,
+def launch_blender(blender_exe: str, blend_file: str, output_dir: str, prefix: str,
                    frame_start: int, frame_end: int, frame_step: int, engine: str, 
                    progress_file: str, worker_id: int = 0, samples=None, simplify=None, volumes=None, total_frames=0,
                    use_factory_startup=False, resolution_scale=None, time_limit=None) -> int:
@@ -150,7 +186,8 @@ def launch_blender(blender_exe: str, blend_file: str, output_path: str,
         "--end", str(frame_end),
         "--step", str(frame_step),
         "--engine", engine,
-        "--output", output_path,
+        "--output-dir", output_dir,
+        "--prefix", prefix,
         "--progress-file", progress_file,
         "--worker-id", str(worker_id)
     ])
@@ -213,7 +250,7 @@ def get_blend_info(blender_exe: str, blend_file: str) -> dict:
 import bpy, json, sys, os
 scene = bpy.context.scene
 fps = getattr(scene.render, 'fps', 24) / getattr(scene.render, 'fps_base', 1.0)
-info = {'start': scene.frame_start, 'end': scene.frame_end, 'output': bpy.path.abspath(scene.render.filepath), 'engine': scene.render.engine, 'fps': fps}
+info = {'start': scene.frame_start, 'end': scene.frame_end, 'step': scene.frame_step, 'output': bpy.path.abspath(scene.render.filepath), 'engine': scene.render.engine, 'fps': fps}
 with open(sys.argv[-1], 'w') as f: json.dump(info, f)
 """
     fd, tmp_path = tempfile.mkstemp(suffix=".json"); os.close(fd)
@@ -256,48 +293,129 @@ except Exception as e:
         return packed_blend
     return None
 
-def assemble_video(output_dir: str, frame_start: int, fps: str, crf: str):
-    try:
-        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
-        ffmpeg_cmd = "ffmpeg"
-    except:
-        print("  [i] FFmpeg not found in PATH. Skipping MP4 assembly.", flush=True)
-        return
-        
-    found_ext = None
+def assemble_video(blender_exe: str, output_dir: str, prefix: str, fps: str):
     import glob
-    files = glob.glob(os.path.join(output_dir, "frame_*.*"))
-    if files:
-        files.sort()
-        found_ext = os.path.splitext(files[0])[1]
+    import tempfile
+    import re
+    
+    all_files = []
+    found_ext = None
+    for ext in (".png", ".exr", ".jpg", ".jpeg", ".tif", ".tiff"):
+        matched = glob.glob(os.path.join(output_dir, f"{prefix}*{ext}"))
+        if matched:
+            all_files = sorted(matched)
+            found_ext = ext
+            break
             
-    if not found_ext:
-        print("  [!] Could not find any image sequences to assemble.", flush=True)
+    if not all_files:
+        print(f"  [!] No sequence matching {prefix} found in {output_dir} to assemble.", flush=True)
         return
 
-    print(f"  [i] Assembling {found_ext} video at {fps} FPS with FFmpeg...", flush=True)
-    out_mp4 = os.path.join(output_dir, "render_output.mp4")
-    input_pattern = os.path.join(output_dir, f"frame_%04d{found_ext}")
+    print(f"  [i] Assembling {found_ext} video using Blender Compositor at {fps} FPS...", flush=True)
+    out_name = f"render_output_{prefix.strip('_')}.mp4" if prefix.strip('_') else "render_output.mp4"
+    out_mp4 = os.path.join(output_dir, out_name)
     
-    cmd = [ffmpeg_cmd, "-y", "-framerate", str(fps)]
+    if os.path.exists(out_mp4):
+        try: os.unlink(out_mp4)
+        except: pass
+
+    fd, script_path = tempfile.mkstemp(suffix=".py", prefix="assemble_")
+    os.close(fd)
     
-    # EXR often requires gamma correction to approximate sRGB if the sequence is raw linear float.
-    if found_ext.lower() == ".exr":
-        cmd += ["-gamma", "2.2"]
-        
-    cmd += ["-start_number", str(frame_start), "-i", input_pattern, "-c:v", "libx264", "-pix_fmt", "yuv420p"]
+    first_file = os.path.basename(all_files[0])
+    match = re.search(r'(\d+)' + re.escape(found_ext) + '$', first_file)
+    first_frame_num = int(match.group(1)) if match else 1
+    duration = len(all_files)
     
-    if crf: cmd += ["-crf", str(crf)]
-    cmd += [out_mp4]
-    
+    script = f"""
+import bpy
+import os
+import sys
+
+out_mp4 = r"{out_mp4}"
+
+print("--- INITIALIZING VIDEO ASSEMBLY ---")
+try:
+    bpy.context.scene.display_settings.display_device = 'sRGB'
+    bpy.context.scene.view_settings.view_transform = 'AgX'
+    bpy.context.scene.view_settings.look = 'None'
+    bpy.context.scene.view_settings.exposure = 0.0
+    bpy.context.scene.view_settings.gamma = 1.0
+    bpy.context.scene.sequencer_colorspace_settings.name = 'sRGB'
+except Exception as e:
+    pass
+
+scene = bpy.context.scene
+scene.frame_start = 1
+scene.frame_end = {duration}
+scene.render.fps = int(float({fps}))
+if str({fps}) in ("23.98", "23.976"):
+    scene.render.fps = 24
+    scene.render.fps_base = 1.001
+
+scene.use_nodes = True
+tree = scene.node_tree
+tree.nodes.clear()
+
+img = bpy.data.images.load(r"{os.path.abspath(all_files[0])}")
+img.source = 'SEQUENCE'
+try:
+    if "{found_ext.lower()}" == ".exr":
+        img.colorspace_settings.name = 'Linear Rec.709'
+except:
+    pass
+
+scene.render.resolution_x = img.size[0] if img.size[0] % 2 == 0 else img.size[0] - 1
+scene.render.resolution_y = img.size[1] if img.size[1] % 2 == 0 else img.size[1] - 1
+scene.render.resolution_percentage = 100
+
+node_image = tree.nodes.new(type="CompositorNodeImage")
+node_image.image = img
+node_image.frame_duration = {duration}
+node_image.frame_start = 1
+node_image.frame_offset = {first_frame_num} - 1
+
+node_composite = tree.nodes.new(type="CompositorNodeComposite")
+tree.links.new(node_image.outputs['Image'], node_composite.inputs['Image'])
+
+scene.render.use_file_extension = False
+scene.render.image_settings.file_format = 'FFMPEG'
+scene.render.ffmpeg.format = 'MPEG4'
+scene.render.ffmpeg.codec = 'H264'
+scene.render.ffmpeg.constant_rate_factor = 'HIGH'
+scene.render.filepath = out_mp4
+
+if not scene.camera:
+    cam_data = bpy.data.cameras.new(name='DummyCam')
+    cam_obj = bpy.data.objects.new('DummyCam', cam_data)
+    scene.collection.objects.link(cam_obj)
+    scene.camera = cam_obj
+
+try:
+    bpy.ops.render.render(animation=True)
+except Exception as e:
+    sys.exit(1)
+"""
     try:
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
-        if os.path.exists(out_mp4):
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(script)
+            
+        cmd = [blender_exe, "-b", "--factory-startup", "--disable-autoexec", "-P", script_path]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                                text=True, encoding='utf-8', errors='replace', creationflags=0x08000000)
+        
+        if result.returncode == 0 and os.path.exists(out_mp4):
             print(f"  [✓] Video successfully created: {out_mp4}", flush=True)
         else:
-            print(f"  [!] Video creation failed (check if frames are PNGs).", flush=True)
+            print(f"  [!] Video creation failed. Blender output:", flush=True)
+            if result.stderr:
+                for line in result.stderr.splitlines()[-5:]: print(f"      {line.strip()}", flush=True)
     except Exception as e:
-        print(f"  [!] FFmpeg error: {e}", flush=True)
+        print(f"  [!] Assembly execution error: {e}", flush=True)
+    finally:
+        if os.path.exists(script_path):
+            try: os.unlink(script_path)
+            except: pass
 
 def generate_render_report(output_dir: str, args: argparse.Namespace, progress: dict, total_frames: int):
     """Generates a summary report of the render session."""
@@ -375,6 +493,7 @@ def run(args: argparse.Namespace) -> None:
             sys.exit(1)
         frame_start = info['start'] if args.start == 'auto' else int(args.start)
         frame_end = info['end'] if args.end == 'auto' else int(args.end)
+        step = info.get('step', 1) if args.step == 'auto' else int(args.step)
         output_dir = info['output'] if args.output == 'auto' else args.output
         
         # Only strip filename if we are in auto-mode and it looks like a file path
@@ -382,7 +501,9 @@ def run(args: argparse.Namespace) -> None:
             output_dir = os.path.dirname(output_dir) or os.path.dirname(blend_file)
         print(f"  [i] Detected: frames {frame_start}-{frame_end}, output: {output_dir}", flush=True)
     else:
-        frame_start, frame_end, output_dir = int(args.start), int(args.end), args.output
+        frame_start, frame_end = int(args.start), int(args.end)
+        step = int(args.step) if args.step != 'auto' else 1 # Fallback for safety
+        output_dir = args.output
 
     if not output_dir or output_dir.strip() == "":
         output_dir = os.path.dirname(os.path.abspath(blend_file))
@@ -390,21 +511,27 @@ def run(args: argparse.Namespace) -> None:
     os.makedirs(output_dir, exist_ok=True)
     progress_file = get_progress_path(output_dir)
     
-    step = int(getattr(args, 'step', 1))
+    # Ensure step is at least 1
+    if step < 1: step = 1
     total_frames = len(range(frame_start, frame_end + 1, step))
 
     progress = load_progress(output_dir)
     if progress and (progress.get("blend_file") != os.path.abspath(blend_file)):
         progress = None
     
+    if progress:
+        prefix = progress.get("prefix", get_file_prefix(blend_file))
+    else:
+        prefix = get_file_prefix(blend_file)
+    
     if progress and progress.get("status") == "completed":
         print("  [✓] All frames already completed.", flush=True)
         if getattr(args, 'assemble_mp4', False):
-            assemble_video(output_dir, frame_start, getattr(args, 'ffmpeg_fps', 24), getattr(args, 'ffmpeg_crf', 18))
+            assemble_video(blender_exe, output_dir, prefix, getattr(args, 'ffmpeg_fps', "24"))
         return
 
     if progress is None:
-        progress = init_progress(blend_file, output_dir, frame_start, frame_end)
+        progress = init_progress(blend_file, output_dir, prefix, frame_start, frame_end)
         with SimpleFileLock(progress_file): save_progress(output_dir, progress)
     else:
         completed = len(progress.get("completed_frames", []))
@@ -427,8 +554,8 @@ def run(args: argparse.Namespace) -> None:
             if all(f in completed for f in range(frame_start, frame_end + 1, step)): break
 
             exit_code = launch_blender(
-                blender_exe, blend_file, output_dir, frame_start, frame_end, step, 
-                getattr(args, 'engine', 'auto'), progress_file, worker_id, 
+                blender_exe, blend_file, output_dir, prefix, frame_start, frame_end, step, 
+                getattr(args, 'engine', 'auto'), progress_file, worker_id,
                 getattr(args, 'samples', None), getattr(args, 'simplify', None), 
                 getattr(args, 'volumes', None), total_frames, getattr(args, 'factory_startup', False),
                 getattr(args, 'resolution_scale', None), getattr(args, 'time_limit', None)
@@ -456,7 +583,7 @@ def run(args: argparse.Namespace) -> None:
         generate_render_report(output_dir, args, final, total_frames)
         
         if done >= total_frames and getattr(args, 'assemble_mp4', False):
-            assemble_video(output_dir, frame_start, getattr(args, 'ffmpeg_fps', 24), getattr(args, 'ffmpeg_crf', 18))
+            assemble_video(blender_exe, output_dir, prefix, getattr(args, 'ffmpeg_fps', "24"))
     else:
         print("\n  SESSION ENDED", flush=True)
         
@@ -471,7 +598,7 @@ def main() -> None:
     parser.add_argument("-o", "--output", default="auto")
     parser.add_argument("-s", "--start", default="auto")
     parser.add_argument("-e", "--end", default="auto")
-    parser.add_argument("-st", "--step", type=int, default=1)
+    parser.add_argument("-st", "--step", default="1")
     parser.add_argument("--engine", default="auto")
     parser.add_argument("--samples")
     parser.add_argument("--simplify")
