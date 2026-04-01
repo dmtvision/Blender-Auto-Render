@@ -168,7 +168,8 @@ def main():
     worker_id = args.get("worker-id", "0")
     frame_start, frame_end = int(args.get("start", 1)), int(args.get("end", 250))
     frame_step = int(args.get("step", 1))
-    output_path = args.get("output", "//render/")
+    output_dir = args.get("output-dir", "//render/")
+    prefix = args.get("prefix", "frame_")
     progress_path = args.get("progress-file", "render_progress.json")
     
     scene = bpy.context.scene
@@ -232,17 +233,9 @@ def main():
         except: pass
 
     # Build output path
-    # If the path exists as a dir, or if it doesn't exist but has no extension 
-    # (heuristic for directory vs file prefix)
-    abs_out = bpy.path.abspath(output_path)
-    if os.path.isdir(abs_out) or not os.path.splitext(os.path.basename(abs_out))[1]:
-        # Treat as directory
-        os.makedirs(abs_out, exist_ok=True)
-        base_path = os.path.join(abs_out, "frame_")
-    else:
-        # Treat as prefix
-        os.makedirs(os.path.dirname(abs_out), exist_ok=True)
-        base_path = abs_out
+    abs_out_dir = bpy.path.abspath(output_dir)
+    os.makedirs(abs_out_dir, exist_ok=True)
+    base_path = os.path.join(abs_out_dir, prefix)
     
     render_range = list(range(frame_start, frame_end + 1, frame_step))
     total_to_render = len(render_range)
