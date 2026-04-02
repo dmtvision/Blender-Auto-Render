@@ -29,7 +29,13 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
 # Config & Settings
 # ──────────────────────────────────────────────
 
-BLENDER_INSTALL_DIR_DEFAULT = r"B:\install"
+BLENDER_INSTALL_DIR_DEFAULT = r"C:\Program Files\Blender Foundation"
+COMMON_SEARCH_PATHS = [
+    r"C:\Program Files\Blender Foundation",
+    r"C:\Program Files (x86)\Blender Foundation",
+    r"B:\install"
+]
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 RENDER_MANAGER_SCRIPT = os.path.join(SCRIPT_DIR, "render_manager.py")
 JOBS_SAVE_FILE = os.path.join(SCRIPT_DIR, "render_jobs.json")
@@ -69,20 +75,34 @@ BORDER = "#141414"
 
 
 def discover_blender_installations(install_dir: str) -> list[dict]:
-    """Scan install_dir for folders containing blender.exe."""
+    """Scan install_dir for folders containing blender.exe, OR check if install_dir itself is the folder."""
     installations = []
     if not os.path.isdir(install_dir):
         return installations
 
+    # 1. Check if the directory itself contains blender.exe
+    exe_path_root = os.path.join(install_dir, "blender.exe")
+    if os.path.isfile(exe_path_root):
+        version_match = re.search(r"(\d+\.\d+)", install_dir)
+        version = version_match.group(1) if version_match else os.path.basename(install_dir)
+        installations.append({
+            "label": f"Blender {version}" if version_match else os.path.basename(install_dir),
+            "version": version,
+            "exe": exe_path_root,
+            "folder": os.path.basename(install_dir),
+        })
+
+    # 2. Check subdirectories (Blender Foundation default style)
     try:
         entries = sorted(os.listdir(install_dir), reverse=True)
     except:
-        return []
+        return installations
 
     for entry in entries:
         full_path = os.path.join(install_dir, entry)
         exe_path = os.path.join(full_path, "blender.exe")
-        if os.path.isdir(full_path) and os.path.isfile(exe_path):
+        # Avoid duplicate if we already found it in root (though unlikely with this loop)
+        if os.path.isdir(full_path) and os.path.isfile(exe_path) and exe_path != exe_path_root:
             version_match = re.search(r"(\d+\.\d+)", entry)
             version = version_match.group(1) if version_match else entry
             installations.append({
@@ -194,12 +214,16 @@ class RenderJobRow(ctk.CTkFrame):
         ctk.CTkLabel(bf_row, text="→").pack(side="left")
         self.end_entry = ctk.CTkEntry(bf_row, textvariable=self.end_var, width=50, height=26, font=("", 11))
         self.end_entry.pack(side="left", padx=1)
-        ctk.CTkLabel(bf_row, text="Step", text_color=TEXT_DIM, font=("", 11)).pack(side="left", padx=(10, 2))
-        self.step_entry = ctk.CTkEntry(bf_row, textvariable=self.step_var, width=35, height=26, font=("", 11))
-        self.step_entry.pack(side="left", padx=1)
         self.auto_range_var = ctk.BooleanVar(value=True)
-        self.auto_range_cb = ctk.CTkCheckBox(bf_row, text="Auto", variable=self.auto_range_var, font=("", 10), width=50, checkbox_width=16, checkbox_height=16, command=self._on_auto_toggle)
-        self.auto_range_cb.pack(side="left", padx=5)
+        self.auto_range_cb = ctk.CTkCheckBox(bf_row, text="Auto", variable=self.auto_range_var, font=("", 10), width=45, checkbox_width=14, checkbox_height=14, command=self._on_auto_toggle)
+        self.auto_range_cb.pack(side="left", padx=2)
+
+        ctk.CTkLabel(bf_row, text="St", text_color=TEXT_DIM, font=("", 11)).pack(side="left", padx=(8, 1))
+        self.step_entry = ctk.CTkEntry(bf_row, textvariable=self.step_var, width=30, height=26, font=("", 11))
+        self.step_entry.pack(side="left", padx=1)
+        self.auto_step_var = ctk.BooleanVar(value=True)
+        self.auto_step_cb = ctk.CTkCheckBox(bf_row, text="Auto", variable=self.auto_step_var, font=("", 10), width=45, checkbox_width=14, checkbox_height=14, command=self._on_auto_toggle)
+        self.auto_step_cb.pack(side="left", padx=2)
 
         # RIGHT COLUMN (Settings)
         right_col = ctk.CTkFrame(body_frame, fg_color="transparent")
@@ -230,8 +254,8 @@ class RenderJobRow(ctk.CTkFrame):
         # Row 2: Flags & Options
         r2 = ctk.CTkFrame(right_col, fg_color="transparent")
         r2.pack(fill="x", pady=2)
-        self.factory_startup_var = ctk.BooleanVar(value=False); self.pack_var = ctk.BooleanVar(value=False); self.assemble_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(r2, text="Safe", variable=self.factory_startup_var, font=("", 10), checkbox_width=14, checkbox_height=14).pack(side="left", padx=2)
+        self.factory_startup_var = ctk.BooleanVar(value=True); self.pack_var = ctk.BooleanVar(value=False); self.assemble_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(r2, text="Safe (Factory)", variable=self.factory_startup_var, font=("", 10), checkbox_width=14, checkbox_height=14).pack(side="left", padx=2)
         ctk.CTkCheckBox(r2, text="Pack", variable=self.pack_var, font=("", 10), checkbox_width=14, checkbox_height=14).pack(side="left", padx=2)
         ctk.CTkCheckBox(r2, text="Video", variable=self.assemble_var, font=("", 10), checkbox_width=14, checkbox_height=14).pack(side="left", padx=2)
 
@@ -274,6 +298,9 @@ class RenderJobRow(ctk.CTkFrame):
         
         st_range = "disabled" if self.auto_range_var.get() else "normal"
         self.start_entry.configure(state=st_range); self.end_entry.configure(state=st_range)
+
+        st_step = "disabled" if getattr(self, "auto_step_var", None) and self.auto_step_var.get() else "normal"
+        self.step_entry.configure(state=st_step)
         
         st_engine = "disabled" if self.auto_engine_var.get() else "normal"
         self.engine_menu.configure(state=st_engine)
@@ -312,6 +339,8 @@ class RenderJobRow(ctk.CTkFrame):
         if info:
             if self.auto_range_var.get():
                 self.start_var.set(str(info.get('start', 1))); self.end_var.set(str(info.get('end', 250)))
+            if hasattr(self, "auto_step_var") and self.auto_step_var.get():
+                self.step_var.set(str(info.get('step', 1)))
             if self.auto_out_var.get():
                 out = info.get('output', ""); self.output_var.set(os.path.dirname(out) if out and not out.endswith(('/', '\\')) else out)
             if self.auto_engine_var.get():
@@ -327,7 +356,8 @@ class RenderJobRow(ctk.CTkFrame):
     def get_config(self) -> dict:
         return {
             "enabled": self.enabled_var.get(), "auto_out": self.auto_out_var.get(),
-            "auto_range": self.auto_range_var.get(), "auto_engine": self.auto_engine_var.get(),
+            "auto_range": self.auto_range_var.get(), "auto_step": self.auto_step_var.get(),
+            "auto_engine": self.auto_engine_var.get(),
             "blend_file": self.blend_path_var.get(), "blender_version": self.version_var.get(),
             "output_dir": self.output_var.get(), "frame_start": self.start_var.get(),
             "frame_end": self.end_var.get(), "frame_step": self.step_var.get(),
@@ -345,6 +375,7 @@ class RenderJobRow(ctk.CTkFrame):
         self.enabled_var.set(config.get("enabled", True))
         self.auto_out_var.set(config.get("auto_out", True))
         self.auto_range_var.set(config.get("auto_range", True))
+        self.auto_step_var.set(config.get("auto_step", True))
         self.auto_engine_var.set(config.get("auto_engine", True))
         self.blend_path_var.set(config.get("blend_file", ""))
         self.version_var.set(config.get("blender_version", self.version_var.get()))
@@ -354,7 +385,7 @@ class RenderJobRow(ctk.CTkFrame):
         self.step_var.set(str(config.get("frame_step", "1")))
         self.engine_var.set(config.get("engine", "CYCLES"))
         self.preset_var.set(config.get("preset", "Default"))
-        self.factory_startup_var.set(config.get("factory_startup", False))
+        self.factory_startup_var.set(config.get("factory_startup", True))
         self.pack_var.set(config.get("pack_external", False))
         self.assemble_var.set(config.get("assemble_mp4", False))
         self.scale_var.set(config.get("resolution_scale", "100%"))
@@ -381,7 +412,21 @@ class BlenderRenderApp(ctk.CTk):
         self.geometry("1100x900")
         self.configure(fg_color=BG_DARK)
 
-        self.blender_versions = discover_blender_installations(BLENDER_INSTALL_DIR)
+        self.blender_versions = []
+        # Try current setting first
+        if os.path.isdir(BLENDER_INSTALL_DIR):
+            self.blender_versions = discover_blender_installations(BLENDER_INSTALL_DIR)
+        
+        # Try common paths if nothing found
+        if not self.blender_versions:
+            for path in COMMON_SEARCH_PATHS:
+                if path != BLENDER_INSTALL_DIR and os.path.isdir(path):
+                    self.blender_versions = discover_blender_installations(path)
+                    if self.blender_versions:
+                        GLOBAL_SETTINGS["blender_install_dir"] = path
+                        save_settings(GLOBAL_SETTINGS)
+                        break
+
         self.job_rows = []
         self.running_process = None
         self.is_running = False
@@ -389,6 +434,15 @@ class BlenderRenderApp(ctk.CTk):
 
         self._build_ui()
         self._load_saved_jobs()
+        
+        # If still no blender found, prompt user
+        if not self.blender_versions:
+            self.after(500, self._show_path_required_dialog)
+
+    def _show_path_required_dialog(self):
+        msg = "No Blender installations were found in default folders.\n\nPlease select the folder containing your Blender versions (e.g. C:\\Program Files\\Blender Foundation) or a specific blender.exe."
+        messagebox.showwarning("Blender Not Found", msg)
+        self._show_settings()
 
     def _build_ui(self):
         top_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -460,10 +514,18 @@ class BlenderRenderApp(ctk.CTk):
         
         custom_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         custom_frame.pack(fill="x", padx=50, pady=5)
-        ctk.CTkRadioButton(custom_frame, text="Custom Path:", variable=radio_var, value="custom", command=on_radio_change).pack(side="left", padx=(0, 10))
+        ctk.CTkRadioButton(custom_frame, text="Custom Path / Folder:", variable=radio_var, value="custom", command=on_radio_change).pack(side="left", padx=(0, 10))
         entry = ctk.CTkEntry(custom_frame, textvariable=path_var, width=220)
         entry.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(custom_frame, text="📂", width=30, fg_color=BG_INPUT, command=lambda: path_var.set(filedialog.askdirectory())).pack(side="left", padx=(5, 0))
+        # Folder picker
+        ctk.CTkButton(custom_frame, text="📁", width=30, fg_color=BG_INPUT, command=lambda: path_var.set(filedialog.askdirectory())).pack(side="left", padx=(5, 0))
+        # File (exe) picker
+        def browse_exe():
+            path = filedialog.askopenfilename(filetypes=[("Executable", "*.exe")], title="Select blender.exe")
+            if path:
+                # If they pick an exe, we save the folder path of that exe
+                path_var.set(os.path.dirname(path))
+        ctk.CTkButton(custom_frame, text="exe", width=35, fg_color=BG_INPUT, command=browse_exe).pack(side="left", padx=(2, 0))
         
         on_radio_change()
         
@@ -471,9 +533,12 @@ class BlenderRenderApp(ctk.CTk):
             GLOBAL_SETTINGS["blender_install_dir"] = path_var.get()
             GLOBAL_SETTINGS["global_workers"] = int(self.workers_var.get() or 1)
             save_settings(GLOBAL_SETTINGS)
-            messagebox.showinfo("Saved", "Settings saved. Please restart the app.", parent=dialog)
+            messagebox.showinfo("Saved", "Settings saved. Please Restart if changes don't apply immediately.", parent=dialog)
+            # Rescan immediately
+            self.blender_versions = discover_blender_installations(path_var.get())
+            # Refresh all job row menus if possible, but simplest is inform the user
             dialog.destroy()
-        ctk.CTkButton(dialog, text="Save & Restart App", fg_color=ACCENT, command=save).pack(pady=20)
+        ctk.CTkButton(dialog, text="Save & Update", fg_color=ACCENT, command=save).pack(pady=20)
 
     def _add_job_row(self, config=None):
         row = RenderJobRow(self.jobs_scroll, self.blender_versions, 
@@ -655,7 +720,7 @@ class BlenderRenderApp(ctk.CTk):
                 cmd += ["-o", "auto" if cfg["auto_out"] else str(cfg["output_dir"])]
                 cmd += ["-s", "auto" if cfg["auto_range"] else str(cfg["frame_start"])]
                 cmd += ["-e", "auto" if cfg["auto_range"] else str(cfg["frame_end"])]
-                cmd += ["-st", step_val, "--blender", str(blender_exe)]
+                cmd += ["-st", "auto" if cfg.get("auto_step") else step_val, "--blender", str(blender_exe)]
                 cmd += ["--engine", "auto" if cfg["auto_engine"] else str(cfg["engine"])]
                 cmd += ["--workers", workers]
                 if cfg.get("factory_startup"):

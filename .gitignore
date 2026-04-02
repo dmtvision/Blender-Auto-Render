@@ -10,15 +10,19 @@ Thumbs.db
 # Project logs and outputs
 crash_log.txt
 error_log.txt
+gui_crash.log
+diff.txt
 render_jobs.json
 settings.json
 render_progress.json
+export-vid/
 
 # If you have render frames in this folder, you should ignore them
 render_output/
 *.png
 *.jpg
 *.exr
+*.mp4
 
 # Any bat files with sensitive paths
 # render.bat
