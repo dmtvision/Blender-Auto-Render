@@ -624,14 +624,16 @@ class BlenderRenderApp(ctk.CTk):
                     step = data.get("frame_step", 1)
                     
                     # Verifying physical presence of files
+                    prefix = data.get("prefix", "frame_")
                     missing = False
                     total = 0
                     found_count = 0
-                    for f in range(frame_start, frame_end + 1, step):
+                    range_list = range(frame_start, frame_end + 1, step)
+                    for f in range_list:
                         total += 1
                         found = False
                         for ext in (".png", ".jpg", ".jpeg", ".exr"):
-                            if os.path.exists(os.path.join(out, f"frame_{f:04d}{ext}")):
+                            if os.path.exists(os.path.join(out, f"{prefix}{f:04d}{ext}")):
                                 found = True
                                 break
                         if found: found_count += 1

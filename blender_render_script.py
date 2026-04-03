@@ -259,7 +259,9 @@ def main():
                         completed_set.add(f); locally_completed.append(f); continue
                     is_claimed = False
                     for wid, frames in claimed.items():
-                        if f in frames: is_claimed = True; break
+                        if str(wid) != str(worker_id) and f in frames:
+                            is_claimed = True
+                            break
                     if not is_claimed: frame = f; break
             if locally_completed: progress["completed_frames"] = sorted(list(completed_set))
             if frame is not None:

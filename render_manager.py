@@ -551,7 +551,29 @@ def run(args: argparse.Namespace) -> None:
                 progress = load_progress(output_dir) or progress
             
             completed = set(progress.get("completed_frames", []))
-            if all(f in completed for f in range(frame_start, frame_end + 1, step)): break
+            claimed = progress.get("claimed_frames", {})
+            
+            # Find frames that are NOT completed
+            missing_frames = [f for f in range(frame_start, frame_end + 1, step) if f not in completed]
+            
+            if not missing_frames:
+                break # All done!
+
+            # Check if any missing frames are NOT claimed by others
+            unclaimed_missing = []
+            for f in missing_frames:
+                is_claimed_by_other = False
+                for wid, frames in claimed.items():
+                    if str(wid) != str(worker_id) and f in frames:
+                        is_claimed_by_other = True
+                        break
+                if not is_claimed_by_other:
+                    unclaimed_missing.append(f)
+            
+            if not unclaimed_missing:
+                # All remaining work is being handled by other workers.
+                # We can safely exit this worker thread.
+                break
 
             exit_code = launch_blender(
                 blender_exe, blend_file, output_dir, prefix, frame_start, frame_end, step, 
@@ -561,11 +583,17 @@ def run(args: argparse.Namespace) -> None:
                 getattr(args, 'resolution_scale', None), getattr(args, 'time_limit', None)
             )
             
-            if exit_code == 0: crashes = 0
+            if exit_code == 0:
+                crashes = 0
+                # Short sleep to prevent tight CPU loop if Blender exits too fast
+                time.sleep(1)
             else:
                 crashes += 1
-                print(f"  [Worker {worker_id}] ⚠ CRASH #{crashes}/5 — retrying in 3s...", flush=True)
-                time.sleep(3)
+                if crashes < 5:
+                    print(f"  [Worker {worker_id}] ⚠ CRASH #{crashes}/5 — retrying in 3s...", flush=True)
+                    time.sleep(3)
+                else:
+                    print(f"  [Worker {worker_id}] ❌ CRASH LIMIT REACHED. Stopping worker.", flush=True)
 
     threads = []
     for i in range(num_workers):
