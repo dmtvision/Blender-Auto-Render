@@ -358,6 +358,26 @@ tree = scene.node_tree
 tree.nodes.clear()
 
 img = bpy.data.images.load(r"{os.path.abspath(all_files[0])}")
+# Force image loading to get correct dimensions
+try:
+    img.update()
+    if img.size[0] == 0:
+        # Accessing pixels forces a hard load of the file
+        _ = img.pixels[0]
+except:
+    pass
+
+width, height = img.size[0], img.size[1]
+if width == 0 or height == 0:
+    # Fallback to a standard resolution if detection fails
+    width, height = 1920, 1080
+
+scene.render.resolution_x = width if width % 2 == 0 else width - 1
+scene.render.resolution_y = height if height % 2 == 0 else height - 1
+if scene.render.resolution_x < 2: scene.render.resolution_x = 2
+if scene.render.resolution_y < 2: scene.render.resolution_y = 2
+scene.render.resolution_percentage = 100
+
 img.source = 'SEQUENCE'
 try:
     if "{found_ext.lower()}" == ".exr":
@@ -365,15 +385,12 @@ try:
 except:
     pass
 
-scene.render.resolution_x = img.size[0] if img.size[0] % 2 == 0 else img.size[0] - 1
-scene.render.resolution_y = img.size[1] if img.size[1] % 2 == 0 else img.size[1] - 1
-scene.render.resolution_percentage = 100
-
 node_image = tree.nodes.new(type="CompositorNodeImage")
 node_image.image = img
 node_image.frame_duration = {duration}
 node_image.frame_start = 1
 node_image.frame_offset = {first_frame_num} - 1
+node_image.use_auto_refresh = True
 
 node_composite = tree.nodes.new(type="CompositorNodeComposite")
 tree.links.new(node_image.outputs['Image'], node_composite.inputs['Image'])
