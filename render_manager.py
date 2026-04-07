@@ -319,6 +319,15 @@ def assemble_video(blender_exe: str, output_dir: str, prefix: str, fps: str):
         try: os.unlink(out_mp4)
         except: pass
 
+    quarantine_dir = os.path.join(output_dir, "_blender_quarantine")
+    os.makedirs(quarantine_dir, exist_ok=True)
+
+    clean_env = os.environ.copy()
+    if 'OCIO' in clean_env:
+        del clean_env['OCIO']
+    clean_env['BLENDER_USER_SCRIPTS'] = quarantine_dir
+    clean_env['BLENDER_USER_CONFIG'] = quarantine_dir
+
     fd, script_path = tempfile.mkstemp(suffix=".py", prefix="assemble_")
     os.close(fd)
     
@@ -395,12 +404,12 @@ node_image.use_auto_refresh = True
 node_composite = tree.nodes.new(type="CompositorNodeComposite")
 tree.links.new(node_image.outputs['Image'], node_composite.inputs['Image'])
 
-scene.render.use_file_extension = False
+scene.render.use_file_extension = True
 scene.render.image_settings.file_format = 'FFMPEG'
 scene.render.ffmpeg.format = 'MPEG4'
 scene.render.ffmpeg.codec = 'H264'
 scene.render.ffmpeg.constant_rate_factor = 'HIGH'
-scene.render.filepath = out_mp4
+scene.render.filepath = r"{os.path.join(output_dir, 'vid_temp_')}"
 
 if not scene.camera:
     cam_data = bpy.data.cameras.new(name='DummyCam')
@@ -417,11 +426,20 @@ except Exception as e:
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(script)
             
+        files_before = set(os.listdir(output_dir))
+        
         cmd = [blender_exe, "-b", "--factory-startup", "--disable-autoexec", "-P", script_path]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-                                text=True, encoding='utf-8', errors='replace', creationflags=0x08000000)
+                                text=True, encoding='utf-8', errors='replace', creationflags=0x08000000, env=clean_env)
         
-        if result.returncode == 0 and os.path.exists(out_mp4):
+        files_after = set(os.listdir(output_dir))
+        new_files = [f for f in files_after - files_before if f.startswith("vid_temp_") and f.endswith(".mp4")]
+        
+        if result.returncode == 0 and new_files:
+            if os.path.exists(out_mp4):
+                try: os.unlink(out_mp4)
+                except: pass
+            os.rename(os.path.join(output_dir, new_files[0]), out_mp4)
             print(f"  [✓] Video successfully created: {out_mp4}", flush=True)
         else:
             print(f"  [!] Video creation failed. Blender output:", flush=True)
@@ -432,6 +450,9 @@ except Exception as e:
     finally:
         if os.path.exists(script_path):
             try: os.unlink(script_path)
+            except: pass
+        if os.path.exists(quarantine_dir) and not os.listdir(quarantine_dir):
+            try: os.rmdir(quarantine_dir)
             except: pass
 
 def generate_render_report(output_dir: str, args: argparse.Namespace, progress: dict, total_frames: int):
