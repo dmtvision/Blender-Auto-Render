@@ -268,6 +268,9 @@ class RenderJobRow(ctk.CTkFrame):
         ctk.CTkLabel(r3, text="Quality:", text_color=TEXT_DIM, font=("", 11)).pack(side="left", padx=(10, 2))
         self.quality_var = ctk.StringVar(value="CRF 18 (High)")
         ctk.CTkOptionMenu(r3, variable=self.quality_var, values=["CRF 18 (High)", "CRF 23 (Medium)", "CRF 28 (Low)"], height=26, font=("", 11), width=120).pack(side="left", padx=1)
+        
+        self.video_format_var = ctk.StringVar(value="MP4_H264")
+        ctk.CTkOptionMenu(r3, variable=self.video_format_var, values=["MP4_H264", "PRORES_422", "PRORES_4444"], height=26, font=("", 11), width=110).pack(side="left", padx=2)
 
         # Progress
         self.progress_bar = ctk.CTkProgressBar(self, height=4, fg_color=BG_DARK, progress_color=SUCCESS)
@@ -368,7 +371,8 @@ class RenderJobRow(ctk.CTkFrame):
             "resolution_scale": self.scale_var.get(),
             "time_limit": self.time_limit_var.get(),
             "fps": self.fps_var.get(),
-            "quality": self.quality_var.get()
+            "quality": self.quality_var.get(),
+            "video_format": self.video_format_var.get()
         }
 
     def set_config(self, config: dict):
@@ -392,6 +396,7 @@ class RenderJobRow(ctk.CTkFrame):
         self.time_limit_var.set(config.get("time_limit", "0"))
         self.fps_var.set(config.get("fps", "24"))
         self.quality_var.set(config.get("quality", "CRF 18 (High)"))
+        self.video_format_var.set(config.get("video_format", "MP4_H264"))
         self._on_auto_toggle()
 
     def validate(self):
@@ -466,6 +471,11 @@ class BlenderRenderApp(ctk.CTk):
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(fill="x", padx=20, pady=10)
         ctk.CTkButton(btn_frame, text="＋ Add Job", fg_color=BG_CARD, command=self._add_job_row).pack(side="left", padx=5)
+        
+        ctk.CTkLabel(btn_frame, text="On Finish:", text_color=TEXT_DIM).pack(side="left", padx=(15, 2))
+        self.on_finish_var = ctk.StringVar(value="Nothing")
+        ctk.CTkOptionMenu(btn_frame, variable=self.on_finish_var, values=["Nothing", "Sleep Mode", "Turn Off"], width=100, fg_color=BG_INPUT).pack(side="left", padx=2)
+        
         self.run_btn = ctk.CTkButton(btn_frame, text="▶ START ALL", fg_color=ACCENT, font=ctk.CTkFont(weight="bold"), height=40, command=self._start_render)
         self.run_btn.pack(side="right", padx=5)
         self.stop_btn = ctk.CTkButton(btn_frame, text="⏹ STOP RENDERS", fg_color="#c0392b", height=40, command=self._stop_render)
@@ -735,6 +745,7 @@ class BlenderRenderApp(ctk.CTk):
                     try: crf = cfg["quality"].split(" ")[1]
                     except: crf = "18"
                     cmd += ["--ffmpeg-fps", str(cfg["fps"]), "--ffmpeg-crf", crf]
+                    cmd += ["--video-format", str(cfg.get("video_format", "MP4_H264"))]
                 
                 if cfg.get("resolution_scale"):
                     cmd += ["--resolution-scale", str(cfg["resolution_scale"])]
@@ -776,6 +787,15 @@ class BlenderRenderApp(ctk.CTk):
             self.is_running = False; self.running_process = None
             self.start_render_time = None
             self.after(0, lambda: (self.stop_btn.pack_forget(), self.run_btn.pack(side="right", padx=5)))
+            
+            # Post-render actions
+            action = self.on_finish_var.get()
+            if action == "Sleep Mode":
+                self._log_safe("\n💤 Entering Sleep Mode...")
+                os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
+            elif action == "Turn Off":
+                self._log_safe("\n🔌 Shutting down computer in 30 seconds...")
+                os.system("shutdown /s /t 30")
 
     def _stop_render(self):
         self.is_running = False

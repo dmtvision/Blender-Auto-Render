@@ -293,7 +293,7 @@ except Exception as e:
         return packed_blend
     return None
 
-def assemble_video(blender_exe: str, output_dir: str, prefix: str, fps: str):
+def assemble_video(blender_exe: str, output_dir: str, prefix: str, fps: str, video_format: str = "MP4_H264"):
     import glob
     import tempfile
     import re
@@ -312,11 +312,21 @@ def assemble_video(blender_exe: str, output_dir: str, prefix: str, fps: str):
         return
 
     print(f"  [i] Assembling {found_ext} video using Blender Compositor at {fps} FPS...", flush=True)
-    out_name = f"render_output_{prefix.strip('_')}.mp4" if prefix.strip('_') else "render_output.mp4"
-    out_mp4 = os.path.join(output_dir, out_name)
     
-    if os.path.exists(out_mp4):
-        try: os.unlink(out_mp4)
+    if video_format == "PRORES_422":
+        ext_str = ".mov"
+        out_name = f"render_output_{prefix.strip('_')}_ProRes422{ext_str}" if prefix.strip('_') else f"render_output_ProRes422{ext_str}"
+    elif video_format == "PRORES_4444":
+        ext_str = ".mov"
+        out_name = f"render_output_{prefix.strip('_')}_ProRes4444{ext_str}" if prefix.strip('_') else f"render_output_ProRes4444{ext_str}"
+    else:
+        ext_str = ".mp4"
+        out_name = f"render_output_{prefix.strip('_')}{ext_str}" if prefix.strip('_') else f"render_output{ext_str}"
+        
+    out_vid = os.path.join(output_dir, out_name)
+    
+    if os.path.exists(out_vid):
+        try: os.unlink(out_vid)
         except: pass
 
     quarantine_dir = os.path.join(output_dir, "_blender_quarantine")
@@ -341,7 +351,8 @@ import bpy
 import os
 import sys
 
-out_mp4 = r"{out_mp4}"
+out_vid = r"{out_vid}"
+video_format = "{video_format}"
 
 print("--- INITIALIZING VIDEO ASSEMBLY ---")
 try:
@@ -405,10 +416,22 @@ node_composite = tree.nodes.new(type="CompositorNodeComposite")
 tree.links.new(node_image.outputs['Image'], node_composite.inputs['Image'])
 
 scene.render.use_file_extension = True
-scene.render.image_settings.file_format = 'FFMPEG'
-scene.render.ffmpeg.format = 'MPEG4'
-scene.render.ffmpeg.codec = 'H264'
-scene.render.ffmpeg.constant_rate_factor = 'HIGH'
+
+if video_format == "PRORES_422":
+    scene.render.image_settings.file_format = 'FFMPEG'
+    scene.render.ffmpeg.format = 'QUICKTIME'
+    scene.render.ffmpeg.codec = 'PRORES'
+elif video_format == "PRORES_4444":
+    scene.render.image_settings.file_format = 'FFMPEG'
+    scene.render.ffmpeg.format = 'QUICKTIME'
+    scene.render.ffmpeg.codec = 'PRORES'
+    scene.render.image_settings.color_mode = 'RGBA'
+else:
+    scene.render.image_settings.file_format = 'FFMPEG'
+    scene.render.ffmpeg.format = 'MPEG4'
+    scene.render.ffmpeg.codec = 'H264'
+    scene.render.ffmpeg.constant_rate_factor = 'HIGH'
+
 scene.render.filepath = r"{os.path.join(output_dir, 'vid_temp_')}"
 
 if not scene.camera:
@@ -433,14 +456,14 @@ except Exception as e:
                                 text=True, encoding='utf-8', errors='replace', creationflags=0x08000000, env=clean_env)
         
         files_after = set(os.listdir(output_dir))
-        new_files = [f for f in files_after - files_before if f.startswith("vid_temp_") and f.endswith(".mp4")]
+        new_files = [f for f in files_after - files_before if f.startswith("vid_temp_") and (f.endswith(".mp4") or f.endswith(".mov"))]
         
         if result.returncode == 0 and new_files:
-            if os.path.exists(out_mp4):
-                try: os.unlink(out_mp4)
+            if os.path.exists(out_vid):
+                try: os.unlink(out_vid)
                 except: pass
-            os.rename(os.path.join(output_dir, new_files[0]), out_mp4)
-            print(f"  [✓] Video successfully created: {out_mp4}", flush=True)
+            os.rename(os.path.join(output_dir, new_files[0]), out_vid)
+            print(f"  [✓] Video successfully created: {out_vid}", flush=True)
         else:
             print(f"  [!] Video creation failed. Blender output:", flush=True)
             if result.stderr:
@@ -565,7 +588,7 @@ def run(args: argparse.Namespace) -> None:
     if progress and progress.get("status") == "completed":
         print("  [✓] All frames already completed.", flush=True)
         if getattr(args, 'assemble_mp4', False):
-            assemble_video(blender_exe, output_dir, prefix, getattr(args, 'ffmpeg_fps', "24"))
+            assemble_video(blender_exe, output_dir, prefix, getattr(args, 'ffmpeg_fps', "24"), getattr(args, 'video_format', "MP4_H264"))
         return
 
     if progress is None:
@@ -649,7 +672,7 @@ def run(args: argparse.Namespace) -> None:
         generate_render_report(output_dir, args, final, total_frames)
         
         if done >= total_frames and getattr(args, 'assemble_mp4', False):
-            assemble_video(blender_exe, output_dir, prefix, getattr(args, 'ffmpeg_fps', "24"))
+            assemble_video(blender_exe, output_dir, prefix, getattr(args, 'ffmpeg_fps', "24"), getattr(args, 'video_format', "MP4_H264"))
     else:
         print("\n  SESSION ENDED", flush=True)
         
@@ -676,6 +699,7 @@ def main() -> None:
     parser.add_argument("--assemble-mp4", action="store_true")
     parser.add_argument("--ffmpeg-fps", default="24")
     parser.add_argument("--ffmpeg-crf", default="18")
+    parser.add_argument("--video-format", default="MP4_H264")
     parser.add_argument("-w", "--workers", type=int, default=1)
     parser.add_argument("--blender", default="blender")
     run(parser.parse_args())
